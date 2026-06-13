@@ -74,6 +74,7 @@ enum Message {
     DragWindow(window::Id),
     WindowOpened(window::Id, WindowKind),
     WindowClosed(window::Id),
+    WindowMoved(window::Id, iced::Point),
     SaveClose,
     ResetDefaults,
     ToggleTile(String, bool),
@@ -107,8 +108,15 @@ impl App {
             Orientation::Horizontal => HORIZONTAL_SIZE,
         };
 
+        let position = if settings.first_run_complete {
+            window::Position::Specific(iced::Point::new(settings.window_x as f32, settings.window_y as f32))
+        } else {
+            window::Position::Centered
+        };
+
         let (_id, open_task) = window::open(window::Settings {
             size: widget_size,
+            position,
             decorations: false,
             transparent: true,
             resizable: false,
@@ -146,8 +154,13 @@ impl App {
         if self.settings_window().is_some() {
             return Task::none();
         }
+        let position = match (self.settings.settings_window_x, self.settings.settings_window_y) {
+            (Some(x), Some(y)) => window::Position::Specific(iced::Point::new(x as f32, y as f32)),
+            _ => window::Position::Default,
+        };
         let (_id, open_task) = window::open(window::Settings {
             size: SETTINGS_SIZE,
+            position,
             decorations: false,
             transparent: true,
             resizable: false,
@@ -155,6 +168,16 @@ impl App {
             ..Default::default()
         });
         open_task.map(|id| Message::WindowOpened(id, WindowKind::Settings))
+    }
+
+    fn widget_resize_task(&self) -> Task<Message> {
+        self.widget_window().map(|id| {
+            let size = match self.settings.orientation {
+                Orientation::Vertical => VERTICAL_SIZE,
+                Orientation::Horizontal => HORIZONTAL_SIZE,
+            };
+            window::resize(id, size)
+        }).unwrap_or(Task::none())
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -180,6 +203,23 @@ impl App {
                 self.windows.insert(id, kind);
                 Task::none()
             }
+            Message::WindowMoved(id, pos) => {
+                match self.windows.get(&id) {
+                    Some(&WindowKind::Widget) => {
+                        self.settings.window_x = pos.x as f64;
+                        self.settings.window_y = pos.y as f64;
+                        self.settings.first_run_complete = true;
+                        let _ = self.settings.save();
+                    }
+                    Some(&WindowKind::Settings) => {
+                        self.settings.settings_window_x = Some(pos.x as f64);
+                        self.settings.settings_window_y = Some(pos.y as f64);
+                        let _ = self.settings.save();
+                    }
+                    None => {}
+                }
+                Task::none()
+            }
             Message::WindowClosed(id) => {
                 self.windows.remove(&id);
                 if self.widget_window().is_none() {
@@ -190,14 +230,7 @@ impl App {
             Message::SaveClose => {
                 let _ = self.settings.save();
                 let close = self.settings_window().map(window::close).unwrap_or(Task::none());
-                let resize = self.widget_window().map(|id| {
-                    let size = match self.settings.orientation {
-                        Orientation::Vertical => VERTICAL_SIZE,
-                        Orientation::Horizontal => HORIZONTAL_SIZE,
-                    };
-                    window::resize(id, size)
-                }).unwrap_or(Task::none());
-                Task::batch([close, resize])
+                Task::batch([close, self.widget_resize_task()])
             }
             Message::ResetDefaults => {
                 self.settings = AppSettings::default();
@@ -219,13 +252,7 @@ impl App {
             }
             Message::SetOrientation(o) => {
                 self.settings.orientation = o;
-                self.widget_window().map(|id| {
-                    let size = match self.settings.orientation {
-                        Orientation::Vertical => VERTICAL_SIZE,
-                        Orientation::Horizontal => HORIZONTAL_SIZE,
-                    };
-                    window::resize(id, size)
-                }).unwrap_or(Task::none())
+                self.widget_resize_task()
             }
             Message::SetAccent(hex) => {
                 self.settings.theme_accent = hex;
@@ -289,6 +316,10 @@ impl App {
             iced::time::every(Duration::from_secs(1)).map(|_| Message::SensorTick),
             iced::time::every(Duration::from_millis(200)).map(|_| Message::TrayPoll),
             window::close_events().map(Message::WindowClosed),
+            window::events().map(|(id, event)| match event {
+                window::Event::Moved(pos) => Message::WindowMoved(id, pos),
+                _ => Message::TrayPoll,
+            }),
         ])
     }
 
@@ -296,3 +327,4 @@ impl App {
         Theme::Dark
     }
 }
+

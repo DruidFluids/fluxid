@@ -1,4 +1,4 @@
-use anyhow::Result;
+﻿use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -27,6 +27,8 @@ pub struct AppSettings {
     // Position
     pub window_x: f64,
     pub window_y: f64,
+    pub settings_window_x: Option<f64>,
+    pub settings_window_y: Option<f64>,
     pub snap_to_edges: bool,
 
     // Game mode
@@ -89,6 +91,8 @@ impl Default for AppSettings {
 
             window_x: 100.0,
             window_y: 100.0,
+            settings_window_x: None,
+            settings_window_y: None,
             snap_to_edges: true,
 
             game_mode_enabled: false,
