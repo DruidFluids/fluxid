@@ -16,3 +16,4 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 fluid-sensor = { version = "2.0.0", path = "../fluid-sensor" }
+tray-icon = "0.24.1"
