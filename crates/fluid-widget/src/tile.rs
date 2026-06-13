@@ -390,6 +390,18 @@ fn tile_container<'a>(content: impl Into<Element<'a, Message>>, p: Palette, w: W
         bg
     };
 
+    // Subtle drop shadow for depth (P10). Skins that draw their own hard edges
+    // (Brutalist / Terminal / Sharp / Ink) opt out for a flatter look.
+    let shadow = if matches!(s.active_skin.as_str(), "Brutalist" | "Terminal" | "Sharp" | "Ink" | "Minimal") {
+        iced::Shadow::default()
+    } else {
+        iced::Shadow {
+            color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.28),
+            offset: iced::Vector::new(0.0, 2.0),
+            blur_radius: 6.0,
+        }
+    };
+
     container(body)
         .width(Length::Fixed(tw))
         .height(Length::Fixed(th))
@@ -400,6 +412,7 @@ fn tile_container<'a>(content: impl Into<Element<'a, Message>>, p: Palette, w: W
                 width: skin.tile_border,
                 color: border_color,
             },
+            shadow,
             ..Default::default()
         })
         .into()

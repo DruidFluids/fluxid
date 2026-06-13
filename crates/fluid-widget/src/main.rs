@@ -136,9 +136,9 @@ enum Message {
     OpenTools, OpenAlerts, OpenGameMode, OpenHelp, ClosePopup(window::Id),
     ToggleTile(String, bool),
     SetOpacity(f32), SetOrientation(Orientation),
-    SetAccent(String), SetFahrenheit(bool), SetSnap(bool),
+    SetFahrenheit(bool), SetSnap(bool),
     ThemePrev, ThemeNext, ThemeDice,
-    SetWarnEnabled(String, bool), SetWarnThreshold(String, f32),
+    SetWarnEnabled(String, bool),
     SetWarnFlash(String, bool), SetWarnGradient(String, bool),
     SetWarnMetric(String, WarnMetric), SetWarnThresholdStr(String, String), SetWarnFlashColor(String, String),
     SetHexColor(u8, String),
@@ -445,9 +445,9 @@ impl App {
             }
             Message::SetOpacity(v) => { self.settings.widget_opacity = v; Task::none() }
             Message::SetOrientation(o) => { self.settings.orientation = o; self.resize_widget() }
-            Message::SetAccent(hex) => { self.settings.theme_accent = hex; Task::none() }
             Message::SetFahrenheit(f) => { self.settings.temperature_unit = if f { TempUnit::Fahrenheit } else { TempUnit::Celsius }; Task::none() }
             Message::SetSnap(on) => { self.settings.snap_to_edges = on; Task::none() }
+            // (theme accent edited via the colour swatches / hex editor)
             Message::ThemePrev => {
                 let n = style::THEME_PRESETS.len();
                 let idx = style::match_preset(&self.settings).map(|i| (i + n - 1) % n).unwrap_or(n - 1);
@@ -466,7 +466,6 @@ impl App {
                 style::apply_preset(&mut self.settings, idx); Task::none()
             }
             Message::SetWarnEnabled(k, on) => { self.settings.warn_mut(&k).enabled = on; self.eval_warnings(); Task::none() }
-            Message::SetWarnThreshold(k, v) => { self.settings.warn_mut(&k).threshold = v as f64; self.eval_warnings(); Task::none() }
             Message::SetWarnThresholdStr(k, s) => {
                 let v: f64 = s.trim().parse().unwrap_or(0.0);
                 self.settings.warn_mut(&k).threshold = v.clamp(0.0, 1000.0); self.eval_warnings(); Task::none()

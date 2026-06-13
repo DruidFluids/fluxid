@@ -4,10 +4,6 @@ use iced::{Border, Element, Length};
 use crate::style::Palette;
 use crate::Message;
 
-pub const ACCENT_PRESETS: [&str; 8] = [
-    "#FF00A8FF","#FF2BC8C8","#FF3FB950","#FF9D6FE0",
-    "#FFE060A8","#FFE05252","#FFE08A3C","#FFD4A93A",
-];
 const TILES: [&str; 6] = ["Clock","CPU","GPU","RAM","Network","Storage"];
 const TILE_INTERNAL: [&str; 6] = ["Clock","CPU","GPU","RAM","Network","Disk"];
 
@@ -331,7 +327,7 @@ pub fn view<'a>(
                     border: Border { radius: 6.0.into(), width: if is_accent { 2.0 } else { 0.0 }, color: p.text },
                     ..Default::default()
                 })
-                .on_press(Message::SetHexColor(slot, hex_s.clone())),
+                .on_press(Message::EditColor(slot)),
             text(name.to_string()).size(9)
                 .font(if is_accent { iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT } } else { iced::Font::DEFAULT })
                 .style(move |_| iced::widget::text::Style { color: Some(if is_accent { p.text } else { p.muted }) }),
@@ -342,6 +338,29 @@ pub fn view<'a>(
     }
     let swatch_strip = row(swatch_cols).spacing(6);
 
+    // Inline hex editor for the swatch the user clicked (EditColor toggles it).
+    let color_editor: Element<'a, Message> = if let Some(slot) = editing_color {
+        let (lbl, hex) = match slot {
+            0 => ("Background", settings.theme_bg.clone()),
+            1 => ("Tile", settings.theme_tile.clone()),
+            2 => ("Accent", settings.theme_accent.clone()),
+            3 => ("Text", settings.theme_text.clone()),
+            _ => ("Muted", settings.theme_muted.clone()),
+        };
+        row![
+            text(format!("{} hex", lbl)).size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
+            Space::with_width(8),
+            text_input("#AARRGGBB", &hex).size(11).font(iced::Font::with_name("Consolas")).width(160)
+                .on_input(move |s| Message::SetHexColor(slot, s)),
+            Space::with_width(8),
+            button(text("done").size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
+                .padding([3, 10]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 4.0.into(), ..Border::default() }, ..Default::default() })
+                .on_press(Message::EditColor(slot)),
+        ].spacing(0).align_y(iced::Alignment::Center).into()
+    } else {
+        Space::with_height(0).into()
+    };
+
     let appearance = column![
         saved_row,
         Space::with_height(4),
@@ -350,6 +369,7 @@ pub fn view<'a>(
         Space::with_height(6),
         swatch_strip,
         Space::with_height(4),
+        color_editor,
         row![fl("Muted text visibility"), Space::with_width(Length::Fill), vl(format!("{:.2}", settings.muted_contrast))],
         slider(0.5..=2.0, settings.muted_contrast, Message::SetMutedContrast).step(0.05),
     ].spacing(3);
