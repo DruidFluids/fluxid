@@ -218,6 +218,7 @@ enum Message {
     SetDisk(String), SetAdapter(String),
     SetAlwaysOnTop(bool), SetRunAtStartup(bool),
     SetUiScale(f32), SetClickThrough(bool), SetSnapWindows(bool), SetSnapDistance(f32),
+    SnapWidgetNow,
     TrafficCycle,
     SetArrowSpacing(f32), SetArrowFontOffset(f32),
     SetDiskLabelSpacing(f32), SetDiskLabelFontOffset(f32),
@@ -485,7 +486,7 @@ impl App {
                     }
                 }
                 if let Some((id, pos, when)) = self.pending_snap {
-                    if when.elapsed() > Duration::from_millis(400) {
+                    if when.elapsed() > Duration::from_millis(150) {
                         self.pending_snap = None;
                         if let Some(snapped) = self.snap_position(pos) {
                             self.ignore_next_move = true;
@@ -497,6 +498,22 @@ impl App {
                 if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
             }
             Message::DragWindow(id) => window::drag(id),
+            // Snap immediately when the mouse is released after dragging.
+            Message::SnapWidgetNow => {
+                self.pending_snap = None;
+                if self.game_mode || !self.settings.snap_to_edges { return Task::none(); }
+                if let Some(id) = self.widget_window() {
+                    let cur = Point::new(self.settings.window_x as f32, self.settings.window_y as f32);
+                    if let Some(snapped) = self.snap_position(cur) {
+                        self.ignore_next_move = true;
+                        self.settings.window_x = snapped.x as f64;
+                        self.settings.window_y = snapped.y as f64;
+                        let _ = self.settings.save();
+                        return window::move_to(id, snapped);
+                    }
+                }
+                Task::none()
+            }
             Message::WindowOpened(id, kind) => {
                 self.windows.insert(id, kind);
                 if kind == WindowKind::Widget {
@@ -864,6 +881,7 @@ impl App {
             });
         mouse_area(root)
             .on_press(Message::DragWindow(id))
+            .on_release(Message::SnapWidgetNow)
             .on_right_press(Message::ShowWidgetMenu)
             .into()
     }
