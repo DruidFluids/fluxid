@@ -16,10 +16,13 @@ fn sz(base: i32, offset: i32, s: &AppSettings) -> u16 {
     (((base + offset).max(7)) as f32 * s.ui_scale).round().max(7.0) as u16
 }
 
+use iced::font::Weight;
+use crate::style::named_font;
+
 fn header<'a>(label: String, p: Palette, s: &AppSettings) -> Element<'a, Message> {
     container(
         text(label).size(sz(13, s.secondary_font_offset, s))
-            .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+            .font(named_font(&s.secondary_font, Weight::Semibold))
             .style(move |_| iced::widget::text::Style { color: Some(p.text) })
     ).width(Length::Fill).center_x(Length::Fill).into()
 }
@@ -27,32 +30,35 @@ fn header<'a>(label: String, p: Palette, s: &AppSettings) -> Element<'a, Message
 fn sub_header<'a>(label: String, p: Palette, s: &AppSettings) -> Element<'a, Message> {
     container(
         text(label).size(sz(11, s.secondary_font_offset, s))
+            .font(named_font(&s.secondary_font, Weight::Normal))
             .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
     ).width(Length::Fill).center_x(Length::Fill).into()
 }
 
 fn big<'a>(t: String, p: Palette, s: &AppSettings) -> Element<'a, Message> {
     text(t).size(sz(18, s.primary_font_offset, s))
-        .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+        .font(named_font(&s.primary_font, Weight::Bold))
         .style(move |_| iced::widget::text::Style { color: Some(p.text) })
         .into()
 }
 
 fn unit<'a>(t: String, accent: iced::Color, s: &AppSettings) -> Element<'a, Message> {
     text(t).size(sz(12, s.indicator_font_offset, s))
-        .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+        .font(named_font(&s.indicator_font, Weight::Bold))
         .style(move |_| iced::widget::text::Style { color: Some(accent) })
         .into()
 }
 
 fn small<'a>(t: String, p: Palette, s: &AppSettings) -> Element<'a, Message> {
     text(t).size(sz(11, s.secondary_font_offset, s))
+        .font(named_font(&s.secondary_font, Weight::Normal))
         .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
         .into()
 }
 
 fn small_unit<'a>(t: String, accent: iced::Color, s: &AppSettings) -> Element<'a, Message> {
     text(t).size(sz(9, s.indicator_font_offset, s))
+        .font(named_font(&s.indicator_font, Weight::Normal))
         .style(move |_| iced::widget::text::Style { color: Some(accent) })
         .into()
 }
@@ -60,11 +66,11 @@ fn small_unit<'a>(t: String, accent: iced::Color, s: &AppSettings) -> Element<'a
 fn line_value<'a>(v: String, u: String, p: Palette, accent: iced::Color, s: &AppSettings) -> Element<'a, Message> {
     row![
         text(v).size(sz(14, s.primary_font_offset, s))
-            .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+            .font(named_font(&s.primary_font, Weight::Bold))
             .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
         Space::with_width(3),
         text(u).size(sz(9, s.indicator_font_offset, s))
-            .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+            .font(named_font(&s.indicator_font, Weight::Bold))
             .style(move |_| iced::widget::text::Style { color: Some(accent) }),
     ]
     .align_y(iced::Alignment::End)
@@ -204,14 +210,14 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
     let lines = column![
         row![
             text("R:".to_string()).size(label_size)
-                .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+                .font(named_font(&s.indicator_font, Weight::Bold))
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             Space::with_width(spacing),
             line_value(rv, ru, p, accent, s),
         ].align_y(iced::Alignment::Center),
         row![
             text("W:".to_string()).size(label_size)
-                .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+                .font(named_font(&s.indicator_font, Weight::Bold))
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             Space::with_width(spacing),
             line_value(wv, wu, p, accent, s),
@@ -229,7 +235,7 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
     ], p, w, s)
 }
 
-pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnView) -> Element<'a, Message> {
+pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnView, pulse: f32) -> Element<'a, Message> {
     let accent = w.accent_override.unwrap_or(p.accent);
     let sel = &s.network_adapter_name;
     let (down, up): (u64, u64) = if sel.is_empty() {
@@ -247,9 +253,19 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
     let (dv, du) = fmt::fmt_net(down as f64);
     let (uv, uu) = fmt::fmt_net(up as f64);
 
+    // P6: animated traffic indicator. "Off" = static muted arrows. Other modes
+    // colour active arrows with the accent and pulse their opacity (pulse is the
+    // 0..1 multiplier from the widget's sine-driven animation clock).
     let indicator_on = s.network_traffic_indicator != "Off";
-    let down_color = if indicator_on && down > 0 { accent } else { p.muted };
-    let up_color = if indicator_on && up > 0 { accent } else { p.muted };
+    let arrow_color = |active: bool| -> iced::Color {
+        if indicator_on && active {
+            iced::Color { a: accent.a * pulse.clamp(0.0, 1.0), ..accent }
+        } else {
+            p.muted
+        }
+    };
+    let down_color = arrow_color(down > 0);
+    let up_color = arrow_color(up > 0);
 
     let arrow_size = sz(15, s.indicator_font_offset + s.arrow_font_offset, s);
     let spacing = s.network_arrow_spacing.max(0.0);
@@ -257,14 +273,14 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
     let lines = column![
         row![
             text("\u{2193}".to_string()).size(arrow_size)
-                .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+                .font(named_font(&s.indicator_font, Weight::Bold))
                 .style(move |_| iced::widget::text::Style { color: Some(down_color) }),
             Space::with_width(spacing),
             line_value(dv, du, p, accent, s),
         ].align_y(iced::Alignment::Center),
         row![
             text("\u{2191}".to_string()).size(arrow_size)
-                .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+                .font(named_font(&s.indicator_font, Weight::Bold))
                 .style(move |_| iced::widget::text::Style { color: Some(up_color) }),
             Space::with_width(spacing),
             line_value(uv, uu, p, accent, s),

@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -61,6 +61,8 @@ pub struct AppSettings {
     pub game_mode_hotkey: String,
     pub game_mode_position: SnapPosition,
     pub game_mode_opacity: f32,
+    pub game_mode_orientation: String,
+    pub game_mode_click_through: bool,
     pub game_mode_tiles: Vec<String>,
 
     pub warnings: Vec<TileWarning>,
@@ -128,6 +130,8 @@ impl Default for AppSettings {
             game_mode_hotkey: "Ctrl+G".into(),
             game_mode_position: SnapPosition::TopRight,
             game_mode_opacity: 0.8,
+            game_mode_orientation: "Current".into(),
+            game_mode_click_through: true,
             game_mode_tiles: vec!["CPU".into(),"GPU".into(),"RAM".into()],
             warnings: vec![
                 TileWarning { kind: "CPU".into(), enabled: false, metric: WarnMetric::Load, threshold: 90.0, flash_enabled: true, flash_color: "#FFFF3333".into(), gradient_mode: false },
@@ -149,8 +153,27 @@ impl Default for AppSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Orientation { Vertical, Horizontal }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum SnapPosition { TopLeft, TopRight, BottomLeft, BottomRight }
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum SnapPosition {
+    TopLeft, TopCenter, TopRight,
+    LeftCenter, RightCenter,
+    BottomLeft, BottomCenter, BottomRight,
+}
+impl SnapPosition {
+    pub fn from_tag(tag: &str) -> SnapPosition {
+        match tag {
+            "TopLeft" => SnapPosition::TopLeft,
+            "TopCenter" => SnapPosition::TopCenter,
+            "TopRight" => SnapPosition::TopRight,
+            "LeftCenter" => SnapPosition::LeftCenter,
+            "RightCenter" => SnapPosition::RightCenter,
+            "BottomLeft" => SnapPosition::BottomLeft,
+            "BottomCenter" => SnapPosition::BottomCenter,
+            "BottomRight" => SnapPosition::BottomRight,
+            _ => SnapPosition::TopRight,
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum UpdateMode { Auto, Manual, Off }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -193,5 +216,3 @@ impl AppSettings {
         std::fs::write(&path, serde_json::to_string_pretty(self)?)?; Ok(())
     }
 }
-
-

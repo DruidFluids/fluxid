@@ -1,5 +1,29 @@
 ﻿use fluid_core::settings::AppSettings;
 use iced::Color;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+fn font_cache() -> &'static Mutex<HashMap<String, &'static str>> {
+    static C: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Build an iced::Font from an optional family name + weight. iced wants a
+/// `&'static str` family name, so runtime-chosen names are interned (leaked
+/// once) into a process-wide cache. `None`/empty falls back to the default UI
+/// font with the requested weight.
+pub fn named_font(name: &Option<String>, weight: iced::font::Weight) -> iced::Font {
+    match name.as_ref().filter(|s| !s.is_empty()) {
+        Some(s) => {
+            let mut cache = font_cache().lock().unwrap();
+            let leaked: &'static str = cache
+                .entry(s.clone())
+                .or_insert_with(|| Box::leak(s.clone().into_boxed_str()));
+            iced::Font { family: iced::font::Family::Name(leaked), weight, ..iced::Font::DEFAULT }
+        }
+        None => iced::Font { weight, ..iced::Font::DEFAULT },
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {

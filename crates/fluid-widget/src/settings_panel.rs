@@ -11,9 +11,12 @@ pub const ACCENT_PRESETS: [&str; 8] = [
 const TILES: [&str; 6] = ["Clock","CPU","GPU","RAM","Network","Storage"];
 const TILE_INTERNAL: [&str; 6] = ["Clock","CPU","GPU","RAM","Network","Disk"];
 
+const FONT_DEFAULT: &str = "(Default)";
+
 pub fn view<'a>(
     settings: &AppSettings, p: Palette, win_id: iced::window::Id,
     theme_name: String, disks: Vec<String>, adapters: Vec<String>,
+    fonts: Vec<String>,
     editing_color: Option<u8>,
 ) -> Element<'a, Message> {
     // ── Style helpers ──
@@ -279,11 +282,11 @@ pub fn view<'a>(
         text("Skins").size(9).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
         row![
             button(text("\u{21B6}").size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
-                .padding([3, 6]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 3.0.into(), ..Border::default() }, ..Default::default() }).on_press(Message::Noop),
+                .padding([3, 6]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 3.0.into(), ..Border::default() }, ..Default::default() }).on_press(Message::SkinPrev),
             button(text("\u{1F3B2}").size(11).font(iced::Font::with_name("Segoe UI Symbol")))
-                .padding([3, 6]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 3.0.into(), ..Border::default() }, ..Default::default() }).on_press(Message::Noop),
+                .padding([3, 6]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 3.0.into(), ..Border::default() }, ..Default::default() }).on_press(Message::SkinDice),
             Space::with_width(4),
-            pill("\u{2039}".into(), false, Message::Noop),
+            pill("\u{2039}".into(), false, Message::SkinPrev),
             container(
                 row![
                     container(Space::new(2, 14)).style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(p.accent)), ..Default::default() }),
@@ -361,20 +364,29 @@ pub fn view<'a>(
             text("Allow random fonts with \u{1F3B2} button").size(11)
                 .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
         ].spacing(6).align_y(iced::Alignment::Center),
-        row![
-            column![
-                fl("Primary font"),
-                pick_list(vec!["Segoe UI".to_string()], Some("Segoe UI".to_string()), |_: String| Message::Noop).text_size(11).width(Length::Fill),
-            ].width(Length::FillPortion(1)).spacing(2),
-            column![
-                fl("Secondary font"),
-                pick_list(vec!["Segoe UI".to_string()], Some("Segoe UI".to_string()), |_: String| Message::Noop).text_size(11).width(Length::Fill),
-            ].width(Length::FillPortion(1)).spacing(2),
-            column![
-                fl("Indicator font"),
-                pick_list(vec!["Segoe UI".to_string()], Some("Segoe UI".to_string()), |_: String| Message::Noop).text_size(11).width(Length::Fill),
-            ].width(Length::FillPortion(1)).spacing(2),
-        ].spacing(6),
+        {
+            let mut opts = vec![FONT_DEFAULT.to_string()];
+            opts.extend(fonts.iter().cloned());
+            let font_picker = |slot: u8, current: &Option<String>| -> Element<'a, Message> {
+                let mut o = opts.clone();
+                let sel = match current {
+                    Some(f) if !f.is_empty() => {
+                        if !o.contains(f) { o.push(f.clone()); }
+                        f.clone()
+                    }
+                    _ => FONT_DEFAULT.to_string(),
+                };
+                pick_list(o, Some(sel), move |s: String| {
+                    let name = if s == FONT_DEFAULT { String::new() } else { s };
+                    Message::SetFont(slot, name)
+                }).text_size(11).width(Length::Fill).into()
+            };
+            row![
+                column![fl("Primary font"), font_picker(0, &settings.primary_font)].width(Length::FillPortion(1)).spacing(2),
+                column![fl("Secondary font"), font_picker(1, &settings.secondary_font)].width(Length::FillPortion(1)).spacing(2),
+                column![fl("Indicator font"), font_picker(2, &settings.indicator_font)].width(Length::FillPortion(1)).spacing(2),
+            ].spacing(6)
+        },
         fl("Font sizes"),
         row![
             column![
@@ -471,7 +483,7 @@ pub fn view<'a>(
         background: Some(iced::Background::Color(p.tile)),
         border: Border { radius: iced::border::Radius { top_left: 7.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 7.0 }, ..Border::default() },
         ..Default::default()
-    }).on_press(Message::Noop);
+    }).on_press(Message::OpenHelp);
     let split_divider = container(Space::new(1, 24)).style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(iced::Color { a: 0.4, ..p.muted })), ..Default::default() });
     let split_right = button(text("\u{2699}").size(13).font(iced::Font::with_name("Segoe UI Symbol"))
         .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
@@ -479,7 +491,7 @@ pub fn view<'a>(
         background: Some(iced::Background::Color(p.tile)),
         border: Border { radius: iced::border::Radius { top_left: 0.0, top_right: 7.0, bottom_right: 7.0, bottom_left: 0.0 }, ..Border::default() },
         ..Default::default()
-    }).on_press(Message::Noop);
+    }).on_press(Message::OpenTools);
 
     let reset_btn = button(text("Reset to Defaults").size(11)
         .style(move |_| iced::widget::text::Style { color: Some(iced::Color::from_rgb(0.9, 0.3, 0.3)) })

@@ -1,7 +1,9 @@
-﻿mod tile;
+mod tile;
 mod style;
 mod fmt;
 mod settings_panel;
+mod popups;
+mod fonts;
 
 use fluid_core::sensor_data::SensorSnapshot;
 use fluid_core::settings::{AppSettings, Orientation, SnapPosition, TempUnit, WarnMetric};
@@ -19,13 +21,16 @@ use tray_icon::{
 
 const SETTINGS_SIZE: Size = Size::new(720.0, 900.0);
 const SNAP_MARGIN: f32 = 20.0;
+// Unique title applied to the widget window so click-through targets only it
+// (the iced daemon otherwise gives every window the same title).
+const WIDGET_TITLE: &str = "fluidMonitor Widget";
 
 fn main() -> iced::Result {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    iced::daemon("fluidMonitor", App::update, App::view)
+    iced::daemon(App::title, App::update, App::view)
         .subscription(App::subscription)
         .theme(App::theme)
         .run_with(App::new)
@@ -73,8 +78,31 @@ fn set_run_at_startup(on: bool) {
 #[cfg(not(target_os = "windows"))]
 fn set_run_at_startup(_: bool) {}
 
+// Toggle WS_EX_TRANSPARENT (click-through) + WS_EX_LAYERED on a window by its
+// title. iced/winit doesn't expose raw HWND access, so we locate the window
+// via FindWindowW against its known title.
+#[cfg(target_os = "windows")]
+fn set_click_through(title: &str, on: bool) {
+    use windows::core::HSTRING;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+    };
+    unsafe {
+        let hwnd = match FindWindowW(None, &HSTRING::from(title)) {
+            Ok(h) if !h.0.is_null() => h,
+            _ => return,
+        };
+        let mut ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let flags = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0) as isize;
+        if on { ex |= flags; } else { ex &= !flags; }
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+    }
+}
+#[cfg(not(target_os = "windows"))]
+fn set_click_through(_: &str, _: bool) {}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum WindowKind { Widget, Settings }
+enum WindowKind { Widget, Settings, Tools, Alerts, GameMode, Help }
 
 struct App {
     settings: AppSettings,
@@ -83,8 +111,11 @@ struct App {
     windows: BTreeMap<window::Id, WindowKind>,
     warn_state: HashMap<String, (bool, Option<Color>)>,
     flash_on: bool,
+    anim_phase: f32,
+    font_list: Vec<String>,
     editing_color: Option<u8>,
     game_mode: bool,
+    click_through_applied: bool,
     pending_snap: Option<(window::Id, Point, Instant)>,
     ignore_next_move: bool,
     _tray: TrayIcon,
@@ -96,18 +127,20 @@ struct App {
 
 #[derive(Debug, Clone)]
 enum Message {
-    SensorTick, TrayPoll, FlashTick,
+    SensorTick, TrayPoll, FlashTick, AnimTick,
     DragWindow(window::Id),
     WindowOpened(window::Id, WindowKind),
     WindowClosed(window::Id),
     WindowMoved(window::Id, Point),
     OpenSettings, HideWidget, SaveClose, ResetDefaults, Noop,
+    OpenTools, OpenAlerts, OpenGameMode, OpenHelp, ClosePopup(window::Id),
     ToggleTile(String, bool),
     SetOpacity(f32), SetOrientation(Orientation),
     SetAccent(String), SetFahrenheit(bool), SetSnap(bool),
     ThemePrev, ThemeNext, ThemeDice,
     SetWarnEnabled(String, bool), SetWarnThreshold(String, f32),
     SetWarnFlash(String, bool), SetWarnGradient(String, bool),
+    SetWarnMetric(String, WarnMetric), SetWarnThresholdStr(String, String), SetWarnFlashColor(String, String),
     SetHexColor(u8, String),
     SetTileWidth(f32), SetTileHeight(f32),
     SetPrimaryFontOffset(f32), SetSecondaryFontOffset(f32), SetIndicatorFontOffset(f32),
@@ -119,14 +152,19 @@ enum Message {
     TrafficCycle,
     SetArrowSpacing(f32), SetArrowFontOffset(f32),
     SetDiskLabelSpacing(f32), SetDiskLabelFontOffset(f32),
-        DiskLabelCycle,
+    DiskLabelCycle,
     SkinPrev, SkinNext, SkinDice,
     SetSyncFonts(bool), SetRandomizeFonts(bool),
+    SetFont(u8, String),
     SetUpdateMode(String),
     PresetSlotClick(u8),
     EditColor(u8),
     SetHotkey(String),
     SetRemoteEnabled(bool),
+    SetGameModeEnabled(bool), SetGameModeHotkey(String),
+    SetGameModePosition(SnapPosition), SetGameModeOpacity(f32),
+    SetGameModeOrientation(String), SetGameModeClickThrough(bool),
+    ToggleGameModeTile(String, bool),
 }
 
 impl App {
@@ -143,7 +181,8 @@ impl App {
         let app = Self {
             settings, snapshot: SensorSnapshot::default(), poller: None,
             windows: BTreeMap::new(), warn_state: HashMap::new(),
-            flash_on: false, editing_color: None, game_mode: false,
+            flash_on: false, anim_phase: 0.0, font_list: fonts::system_fonts(), editing_color: None, game_mode: false,
+            click_through_applied: false,
             pending_snap: None, ignore_next_move: false,
             _tray: tray, settings_id: sid, show_id: wid, game_id: gid, exit_id: eid,
         };
@@ -158,18 +197,32 @@ impl App {
         (app, open.map(|id| Message::WindowOpened(id, WindowKind::Widget)))
     }
 
+    fn effective_orientation(&self) -> Orientation {
+        if self.game_mode {
+            match self.settings.game_mode_orientation.as_str() {
+                "Horizontal" => Orientation::Horizontal,
+                "Vertical" => Orientation::Vertical,
+                _ => self.settings.orientation.clone(),
+            }
+        } else {
+            self.settings.orientation.clone()
+        }
+    }
+
     fn current_tiles(&self) -> Vec<String> {
-        if self.game_mode { self.settings.game_mode_tiles.clone() }
-        else { self.settings.tile_order.iter().filter(|t| self.settings.visible_tiles.contains(t)).cloned().collect() }
+        if self.game_mode {
+            self.settings.tile_order.iter().filter(|t| self.settings.game_mode_tiles.contains(t)).cloned().collect()
+        } else {
+            self.settings.tile_order.iter().filter(|t| self.settings.visible_tiles.contains(t)).cloned().collect()
+        }
     }
     fn widget_size(&self) -> Size {
         let n = self.current_tiles().len().max(1) as f32;
         let sc = self.settings.ui_scale;
         let tw = self.settings.tile_width * sc;
         let th = self.settings.tile_height * sc;
-        let orient = if self.game_mode { Orientation::Horizontal } else { self.settings.orientation.clone() };
         let sp = style::skin_style(&self.settings.active_skin).tile_spacing;
-        match orient {
+        match self.effective_orientation() {
             Orientation::Horizontal => Size::new(16.0 + n * tw + (n - 1.0) * sp, 8.0 + 18.0 + 4.0 + th + 8.0),
             Orientation::Vertical => Size::new(tw + 16.0, 8.0 + 18.0 + 4.0 + n * th + (n - 1.0) * sp + 8.0),
         }
@@ -191,6 +244,18 @@ impl App {
             level: window::Level::AlwaysOnTop, ..Default::default()
         });
         t.map(|id| Message::WindowOpened(id, WindowKind::Settings))
+    }
+    fn open_popup(&self, kind: WindowKind, size: Size) -> Task<Message> {
+        if self.windows.values().any(|k| *k == kind) { return Task::none(); }
+        let (_, t) = window::open(window::Settings {
+            size, position: window::Position::Centered, decorations: false, transparent: true,
+            resizable: false, level: window::Level::AlwaysOnTop, ..Default::default()
+        });
+        t.map(move |id| Message::WindowOpened(id, kind))
+    }
+    fn close_kind(&self, kind: WindowKind) -> Task<Message> {
+        let ids: Vec<_> = self.windows.iter().filter(|(_, k)| **k == kind).map(|(id, _)| *id).collect();
+        Task::batch(ids.into_iter().map(window::close))
     }
     fn resize_widget(&self) -> Task<Message> {
         self.widget_window().map(|id| window::resize(id, self.widget_size())).unwrap_or(Task::none())
@@ -250,12 +315,36 @@ impl App {
         let (l, t, r, b) = work_area()?;
         let sz = self.widget_size();
         const M: f32 = 8.0;
+        let cx = l + ((r - l) - sz.width) / 2.0;
+        let cy = t + ((b - t) - sz.height) / 2.0;
+        let left = l + M;
+        let right = r - sz.width - M;
+        let top = t + M;
+        let bottom = b - sz.height - M;
         Some(match self.settings.game_mode_position {
-            SnapPosition::TopLeft => Point::new(l + M, t + M),
-            SnapPosition::TopRight => Point::new(r - sz.width - M, t + M),
-            SnapPosition::BottomLeft => Point::new(l + M, b - sz.height - M),
-            SnapPosition::BottomRight => Point::new(r - sz.width - M, b - sz.height - M),
+            SnapPosition::TopLeft => Point::new(left, top),
+            SnapPosition::TopCenter => Point::new(cx, top),
+            SnapPosition::TopRight => Point::new(right, top),
+            SnapPosition::LeftCenter => Point::new(left, cy),
+            SnapPosition::RightCenter => Point::new(right, cy),
+            SnapPosition::BottomLeft => Point::new(left, bottom),
+            SnapPosition::BottomCenter => Point::new(cx, bottom),
+            SnapPosition::BottomRight => Point::new(right, bottom),
         })
+    }
+
+    // Apply (or clear) click-through on the widget window based on current mode.
+    fn apply_click_through(&mut self) -> Task<Message> {
+        let want = if self.game_mode {
+            self.settings.game_mode_click_through
+        } else {
+            self.settings.click_through
+        };
+        if want != self.click_through_applied {
+            self.click_through_applied = want;
+            set_click_through(WIDGET_TITLE, want);
+        }
+        Task::none()
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -266,6 +355,11 @@ impl App {
                 self.snapshot = poller.poll(); self.eval_warnings(); Task::none()
             }
             Message::FlashTick => { self.flash_on = !self.flash_on; Task::none() }
+            Message::AnimTick => {
+                // 0..1 phase advanced each tick; tiles derive pulse from it.
+                self.anim_phase = (self.anim_phase + 0.05) % 1.0;
+                Task::none()
+            }
             Message::TrayPoll => {
                 let mut tasks: Vec<Task<Message>> = Vec::new();
                 if let Ok(event) = MenuEvent::receiver().try_recv() {
@@ -279,6 +373,7 @@ impl App {
                             if self.game_mode { if let Some(c) = self.game_corner() { self.ignore_next_move = true; tasks.push(window::move_to(id, c)); } }
                             else { self.ignore_next_move = true; tasks.push(window::move_to(id, Point::new(self.settings.window_x as f32, self.settings.window_y as f32))); }
                         }
+                        tasks.push(self.apply_click_through());
                     }
                 }
                 if let Some((id, pos, when)) = self.pending_snap {
@@ -294,7 +389,15 @@ impl App {
                 if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
             }
             Message::DragWindow(id) => window::drag(id),
-            Message::WindowOpened(id, kind) => { self.windows.insert(id, kind); Task::none() }
+            Message::WindowOpened(id, kind) => {
+                self.windows.insert(id, kind);
+                if kind == WindowKind::Widget {
+                    // The daemon title fn gives the widget a unique title, so
+                    // click-through targets it alone. Apply current state.
+                    return self.apply_click_through();
+                }
+                Task::none()
+            }
             Message::WindowMoved(id, pos) => {
                 match self.windows.get(&id) {
                     Some(&WindowKind::Widget) => {
@@ -308,13 +411,21 @@ impl App {
                         self.settings.settings_window_x = Some(pos.x as f64);
                         self.settings.settings_window_y = Some(pos.y as f64); let _ = self.settings.save();
                     }
-                    None => {}
+                    _ => {}
                 }
                 Task::none()
             }
             Message::WindowClosed(id) => { self.windows.remove(&id); if self.widget_window().is_none() { return iced::exit(); } Task::none() }
             Message::OpenSettings => self.open_settings(),
             Message::HideWidget => self.widget_window().map(|id| window::change_mode(id, window::Mode::Hidden)).unwrap_or(Task::none()),
+            Message::OpenTools => self.open_popup(WindowKind::Tools, popups::TOOLS_SIZE),
+            Message::OpenAlerts => Task::batch([self.close_kind(WindowKind::Tools), self.open_popup(WindowKind::Alerts, popups::ALERTS_SIZE)]),
+            Message::OpenGameMode => Task::batch([self.close_kind(WindowKind::Tools), self.open_popup(WindowKind::GameMode, popups::GAME_MODE_SIZE)]),
+            Message::OpenHelp => Task::batch([self.close_kind(WindowKind::Tools), self.open_popup(WindowKind::Help, popups::HELP_SIZE)]),
+            Message::ClosePopup(id) => {
+                let _ = self.settings.save();
+                Task::batch([window::close(id), self.resize_widget()])
+            }
             Message::SaveClose => {
                 let _ = self.settings.save();
                 let close = self.settings_window().map(window::close).unwrap_or(Task::none());
@@ -356,8 +467,14 @@ impl App {
             }
             Message::SetWarnEnabled(k, on) => { self.settings.warn_mut(&k).enabled = on; self.eval_warnings(); Task::none() }
             Message::SetWarnThreshold(k, v) => { self.settings.warn_mut(&k).threshold = v as f64; self.eval_warnings(); Task::none() }
+            Message::SetWarnThresholdStr(k, s) => {
+                let v: f64 = s.trim().parse().unwrap_or(0.0);
+                self.settings.warn_mut(&k).threshold = v.clamp(0.0, 1000.0); self.eval_warnings(); Task::none()
+            }
             Message::SetWarnFlash(k, on) => { self.settings.warn_mut(&k).flash_enabled = on; self.eval_warnings(); Task::none() }
             Message::SetWarnGradient(k, on) => { self.settings.warn_mut(&k).gradient_mode = on; self.eval_warnings(); Task::none() }
+            Message::SetWarnMetric(k, m) => { self.settings.warn_mut(&k).metric = m; self.eval_warnings(); Task::none() }
+            Message::SetWarnFlashColor(k, s) => { self.settings.warn_mut(&k).flash_color = s; Task::none() }
             Message::EditColor(slot) => {
                 self.editing_color = if self.editing_color == Some(slot) { None } else { Some(slot) };
                 Task::none()
@@ -383,7 +500,7 @@ impl App {
             }
             Message::SetRunAtStartup(on) => { self.settings.run_at_startup = on; set_run_at_startup(on); Task::none() }
             Message::SetUiScale(v) => { self.settings.ui_scale = v; self.resize_widget() }
-            Message::SetClickThrough(on) => { self.settings.click_through = on; Task::none() }
+            Message::SetClickThrough(on) => { self.settings.click_through = on; self.apply_click_through() }
             Message::SetSnapWindows(on) => { self.settings.snap_to_windows = on; Task::none() }
             Message::TrafficCycle => {
                 let modes = ["Off", "Blink", "Fade", "Glow"];
@@ -396,7 +513,7 @@ impl App {
             Message::SetDiskLabelSpacing(v) => { self.settings.disk_label_spacing = v; Task::none() }
             Message::SetDiskLabelFontOffset(v) => { self.settings.disk_label_font_offset = v as i32; Task::none() }
             Message::SetHotkey(v) => { self.settings.click_through_hotkey = v; Task::none() }
-                        Message::SetRemoteEnabled(on) => { self.settings.remote_enabled = on; Task::none() }
+            Message::SetRemoteEnabled(on) => { self.settings.remote_enabled = on; Task::none() }
             Message::SkinPrev => {
                 let skins = style::SKIN_NAMES;
                 let cur = skins.iter().position(|s| *s == self.settings.active_skin).unwrap_or(0);
@@ -419,6 +536,21 @@ impl App {
             }
             Message::SetSyncFonts(on) => { self.settings.sync_fonts = on; Task::none() }
             Message::SetRandomizeFonts(on) => { self.settings.randomize_fonts_on_dice = on; Task::none() }
+            Message::SetFont(slot, name) => {
+                let val = if name.is_empty() { None } else { Some(name) };
+                if self.settings.sync_fonts {
+                    self.settings.primary_font = val.clone();
+                    self.settings.secondary_font = val.clone();
+                    self.settings.indicator_font = val;
+                } else {
+                    match slot {
+                        0 => self.settings.primary_font = val,
+                        1 => self.settings.secondary_font = val,
+                        _ => self.settings.indicator_font = val,
+                    }
+                }
+                Task::none()
+            }
             Message::SetUpdateMode(mode) => {
                 self.settings.update_check_mode = match mode.as_str() {
                     "Auto" => fluid_core::settings::UpdateMode::Auto,
@@ -430,7 +562,6 @@ impl App {
             Message::PresetSlotClick(slot) => {
                 let idx = slot as usize;
                 if idx < self.settings.presets.len() {
-                    // Load existing preset
                     let p = self.settings.presets[idx].clone();
                     self.settings.theme_bg = p.bg;
                     self.settings.theme_tile = p.tile;
@@ -439,7 +570,6 @@ impl App {
                     self.settings.theme_muted = p.muted;
                     self.settings.active_skin = p.skin;
                 } else {
-                    // Save current to new slot
                     while self.settings.presets.len() <= idx {
                         self.settings.presets.push(fluid_core::settings::PresetSlot {
                             name: format!("Slot {}", self.settings.presets.len() + 1),
@@ -467,19 +597,55 @@ impl App {
                 self.settings.disk_label_style = styles[(cur + 1) % styles.len()].to_string();
                 Task::none()
             }
+            Message::SetGameModeEnabled(on) => { self.settings.game_mode_enabled = on; Task::none() }
+            Message::SetGameModeHotkey(s) => { self.settings.game_mode_hotkey = s; Task::none() }
+            Message::SetGameModePosition(pos) => {
+                self.settings.game_mode_position = pos;
+                if self.game_mode {
+                    if let (Some(id), Some(c)) = (self.widget_window(), self.game_corner()) {
+                        self.ignore_next_move = true;
+                        return window::move_to(id, c);
+                    }
+                }
+                Task::none()
+            }
+            Message::SetGameModeOpacity(v) => { self.settings.game_mode_opacity = v; Task::none() }
+            Message::SetGameModeOrientation(s) => {
+                self.settings.game_mode_orientation = s;
+                if self.game_mode { self.resize_widget() } else { Task::none() }
+            }
+            Message::SetGameModeClickThrough(on) => { self.settings.game_mode_click_through = on; self.apply_click_through() }
+            Message::ToggleGameModeTile(name, on) => {
+                if on {
+                    if !self.settings.game_mode_tiles.contains(&name) { self.settings.game_mode_tiles.push(name); }
+                } else {
+                    self.settings.game_mode_tiles.retain(|t| t != &name);
+                }
+                if self.game_mode { self.resize_widget() } else { Task::none() }
+            }
         }
     }
 
     fn view(&self, id: window::Id) -> Element<'_, Message> {
-        let opacity = if self.game_mode { self.settings.game_mode_opacity } else { self.settings.widget_opacity };
+        let kind = self.windows.get(&id).copied().unwrap_or(WindowKind::Widget);
+        let opacity = if kind == WindowKind::Widget {
+            if self.game_mode { self.settings.game_mode_opacity } else { self.settings.widget_opacity }
+        } else {
+            1.0
+        };
         let p = Palette::from_settings(&self.settings, opacity);
-        match self.windows.get(&id) {
-            Some(WindowKind::Settings) => settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.editing_color),
-            _ => self.widget_view(id, p),
+        match kind {
+            WindowKind::Settings => settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), self.editing_color),
+            WindowKind::Tools => popups::tools_view(&self.settings, p, id),
+            WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
+            WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id),
+            WindowKind::Help => popups::help_view(&self.settings, p, id),
+            WindowKind::Widget => self.widget_view(id, p),
         }
     }
 
     fn widget_view(&self, id: window::Id, p: Palette) -> Element<'_, Message> {
+        let pulse = self.traffic_pulse();
         let mut tiles: Vec<Element<'_, Message>> = Vec::new();
         for name in self.current_tiles() {
             let w = self.warn_view(&name);
@@ -488,22 +654,16 @@ impl App {
                 "GPU" => tile::gpu_tile(&self.snapshot.gpu, &self.settings, p, w),
                 "RAM" => tile::ram_tile(&self.snapshot.ram, &self.settings, p, w),
                 "Disk" => tile::disk_tile(&self.snapshot.disk, &self.settings, p, w),
-                "Network" => tile::network_tile(&self.snapshot.network, &self.settings, p, w),
+                "Network" => tile::network_tile(&self.snapshot.network, &self.settings, p, w, pulse),
                 "Clock" => tile::clock_tile(&self.settings, p, w),
                 _ => continue,
             };
             tiles.push(el);
         }
-        let orient = if self.game_mode { Orientation::Horizontal } else { self.settings.orientation.clone() };
-        let body: Element<'_, Message> = match orient {
-            Orientation::Vertical => {
-                let skin = style::skin_style(&self.settings.active_skin);
-                column(tiles).spacing(skin.tile_spacing).into()
-            }
-            Orientation::Horizontal => {
-                let skin = style::skin_style(&self.settings.active_skin);
-                row(tiles).spacing(skin.tile_spacing).into()
-            }
+        let skin = style::skin_style(&self.settings.active_skin);
+        let body: Element<'_, Message> = match self.effective_orientation() {
+            Orientation::Vertical => column(tiles).spacing(skin.tile_spacing).into(),
+            Orientation::Horizontal => row(tiles).spacing(skin.tile_spacing).into(),
         };
         let icon_btn = |label: &str, msg: Message| {
             button(text(label.to_string()).size(11).font(iced::Font::with_name("Segoe UI Symbol"))
@@ -511,7 +671,6 @@ impl App {
             ).padding(0).style(|_, _| button::Style { background: None, ..Default::default() }).on_press(msg)
         };
         let header = row![icon_btn("\u{2699}", Message::OpenSettings), Space::with_width(Length::Fill), icon_btn("\u{2715}", Message::HideWidget)].height(18);
-        let skin = style::skin_style(&self.settings.active_skin);
         let widget_border = skin.border_color(&p);
         let root = container(column![header, Space::with_height(4), body])
             .width(Length::Fill).height(Length::Fill).padding(8)
@@ -522,8 +681,21 @@ impl App {
         mouse_area(root).on_press(Message::DragWindow(id)).into()
     }
 
+    // Returns the current network-traffic indicator opacity multiplier (1.0 if
+    // the indicator is static/off). Driven by anim_phase via a sine wave.
+    fn traffic_pulse(&self) -> f32 {
+        let phase = self.anim_phase * std::f32::consts::TAU;
+        let wave = (phase.sin() * 0.5 + 0.5).clamp(0.0, 1.0); // 0..1
+        match self.settings.network_traffic_indicator.as_str() {
+            "Blink" => 0.35 + 0.65 * wave,
+            "Fade" => 0.25 + 0.75 * wave,
+            "Glow" => 0.5 + 0.5 * wave,
+            _ => 1.0,
+        }
+    }
+
     fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
+        let mut subs = vec![
             iced::time::every(Duration::from_millis(self.settings.update_interval_ms.max(250))).map(|_| Message::SensorTick),
             iced::time::every(Duration::from_millis(200)).map(|_| Message::TrayPoll),
             iced::time::every(Duration::from_millis(600)).map(|_| Message::FlashTick),
@@ -532,11 +704,19 @@ impl App {
                 window::Event::Moved(pos) => Message::WindowMoved(id, pos),
                 _ => Message::TrayPoll,
             }),
-        ])
+        ];
+        // Only run the animation clock when an animated indicator is active.
+        if self.settings.network_traffic_indicator != "Off" {
+            subs.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::AnimTick));
+        }
+        Subscription::batch(subs)
     }
     fn theme(&self, _id: window::Id) -> Theme { Theme::Dark }
+
+    fn title(&self, id: window::Id) -> String {
+        match self.windows.get(&id) {
+            Some(WindowKind::Widget) => WIDGET_TITLE.to_string(),
+            _ => "fluidMonitor".to_string(),
+        }
+    }
 }
-
-
-
-
