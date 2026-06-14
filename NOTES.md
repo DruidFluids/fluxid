@@ -3,20 +3,31 @@
 Things that need a product decision from you — nothing is blocked, these are
 trade-offs I didn't want to make unilaterally.
 
-## CPU temperature accuracy (needs your call)
-Accurate CPU **package/die** temperature on Windows requires a kernel-level
-sensor driver (RAPL/MSR access). The old C# app used PawnIO for this. That
-conflicts directly with the "zero security issues / no kernel driver" goal.
+## CPU temperature accuracy — RESOLVED (optional PawnIO opt-in)
+Re-added the optional CPU sensor driver, faithful to C#. The user opts in from
+**Settings → Tiles → the "i" / Active-Inactive chip next to CPU temperature**.
 
-What the Rust port does now, in order of preference:
-1. **sysinfo components** — only populated if a hardware-monitor driver is already feeding the OS.
-2. **LibreHardwareMonitor / OpenHardwareMonitor WMI** — accurate CPU Package/core temp, *if you run one of those apps in the background* (no driver shipped by us). **Added today.**
-3. **ACPI thermal zone (MSAcpi)** — coarse fallback. On your machine this reports ~17 °C, which is an ambient/chipset zone, **not** the CPU die. It now **rejects readings below 20 °C** (impossible for a CPU die) so the tile shows "—" instead of a misleading "17 °C". So: with nothing else available, CPU temp will read "—" until you run a hardware monitor (option a).
+- **Install (secure):** never bundles the driver; downloads the official signed
+  PawnIO installer, verifies it with `WinVerifyTrust` (trusted chain +
+  revocation) before running, then one silent elevated install. Uninstall via
+  the driver's own registry key. (`cpu_driver.rs`)
+- **Read (self-contained):** bundles the officially-signed PawnIO modules
+  (LGPL-2.1) — `IntelMSR.bin` (all Intel), `AMDFamily17.bin` (all AMD Zen 1–5)
+  — and reads the CPU's thermal MSR/SMN directly via `PawnIOLib.dll`. Decode is
+  a faithful port of LibreHardwareMonitor. (`fluid-sensor/src/pawnio.rs`)
+- Preferred source on Windows; LHM-WMI and ACPI remain fallbacks. Re-probes
+  live after install/uninstall (no restart).
 
-Options:
-- **(a)** Run LibreHardwareMonitor in the background → fluidMonitor will read accurate temps automatically. Zero security cost. *(Recommended.)*
-- **(b)** Accept that CPU temp may be inaccurate/absent without a helper.
-- **(c)** Ship a signed kernel sensor driver → accurate, but a security/AV surface you've said you want to avoid.
+CPU-temp source order (Windows): PawnIO → sysinfo components → LHM/OHM WMI →
+ACPI thermal zone (rejects <20 °C so a chipset/ambient zone never shows as the
+CPU die).
+
+**Needs your validation (hardware-specific):** install PawnIO via the dialog on
+your 9950X3D and confirm the reading matches HWiNFO/Ryzen Master. The AMD Zen5
+decode is ported from LHM but unverified on real silicon until you test.
+
+**Pre-Zen AMD (FX/Phenom) & pre-2011 Intel:** not yet covered natively (would
+need their family modules + decode); they fall back to LHM-WMI/ACPI.
 
 Related limitation: **CPU clock** via sysinfo is the base/nominal clock on
 Windows (e.g. a static 4300 MHz), not the live boosting frequency — there's no
