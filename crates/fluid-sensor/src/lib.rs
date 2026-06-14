@@ -139,7 +139,11 @@ fn wmi_cpu_temp() -> Option<f32> {
                     _ => continue,
                 };
                 let c = (raw / 10.0) - 273.15;
-                if c > 0.0 && c < 150.0 {
+                // A CPU die is essentially never below ~20 °C. Many boards expose
+                // only a cool ambient/chipset zone here; showing that as the CPU
+                // temp is misleading, so reject implausibly-low values and let the
+                // tile show "—" instead of a wrong number.
+                if (20.0..130.0).contains(&c) {
                     let cf = c as f32;
                     best = Some(best.map_or(cf, |b| b.max(cf)));
                 }

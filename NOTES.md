@@ -11,7 +11,7 @@ conflicts directly with the "zero security issues / no kernel driver" goal.
 What the Rust port does now, in order of preference:
 1. **sysinfo components** — only populated if a hardware-monitor driver is already feeding the OS.
 2. **LibreHardwareMonitor / OpenHardwareMonitor WMI** — accurate CPU Package/core temp, *if you run one of those apps in the background* (no driver shipped by us). **Added today.**
-3. **ACPI thermal zone (MSAcpi)** — coarse fallback. On your machine this reports ~17 °C, which is an ambient/chipset zone, **not** the CPU die — hence the wrong "17 °C".
+3. **ACPI thermal zone (MSAcpi)** — coarse fallback. On your machine this reports ~17 °C, which is an ambient/chipset zone, **not** the CPU die. It now **rejects readings below 20 °C** (impossible for a CPU die) so the tile shows "—" instead of a misleading "17 °C". So: with nothing else available, CPU temp will read "—" until you run a hardware monitor (option a).
 
 Options:
 - **(a)** Run LibreHardwareMonitor in the background → fluidMonitor will read accurate temps automatically. Zero security cost. *(Recommended.)*
