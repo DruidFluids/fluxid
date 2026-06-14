@@ -497,6 +497,8 @@ struct App {
     cpu_dialog: CpuDriverStage,
     // Which device the widget is showing: None = this PC, Some(id) = a remote.
     widget_device: Option<String>,
+    // Which tile's section is expanded in the Tiles settings tab (accordion).
+    tiles_section: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -573,6 +575,7 @@ enum Message {
     // ── Optional CPU sensor driver (PawnIO) ──
     OpenCpuDriver, DismissCpuTempHint,
     SwitchWidgetDevice(Option<String>), SetShowRemoteStatusDot(bool),
+    ToggleTileSection(String), SetTileField(String, bool),
     CpuDriverMoreInfo, CpuDriverBack,
     CpuDriverInstall, CpuDriverUninstall,
     CpuDriverInstallDone(cpu_driver::Outcome),
@@ -635,6 +638,7 @@ impl App {
             cpu_driver_installed: cpu_driver::is_installed(),
             cpu_dialog: CpuDriverStage::Primary,
             widget_device: None,
+            tiles_section: None,
         };
         let size = app.widget_size();
         let position = if app.settings.first_run_complete {
@@ -1188,6 +1192,30 @@ impl App {
             }
             Message::SetShowRemoteStatusDot(on) => {
                 self.settings.show_remote_status_dot = on;
+                let _ = self.settings.save();
+                Task::none()
+            }
+            Message::ToggleTileSection(name) => {
+                self.tiles_section = if self.tiles_section.as_deref() == Some(name.as_str()) { None } else { Some(name) };
+                Task::none()
+            }
+            Message::SetTileField(key, on) => {
+                let st = &mut self.settings;
+                match key.as_str() {
+                    "cpu_temp" => st.cpu_show_temp = on,
+                    "cpu_clock" => st.cpu_show_clock = on,
+                    "gpu_temp" => st.gpu_show_temp = on,
+                    "gpu_clock" => st.gpu_show_clock = on,
+                    "gpu_vram" => st.gpu_show_vram = on,
+                    "ram_speed" => st.ram_show_speed = on,
+                    "ram_details" => st.ram_show_details = on,
+                    "net_down" => st.net_show_down = on,
+                    "net_up" => st.net_show_up = on,
+                    "disk_read" => st.disk_show_read = on,
+                    "disk_write" => st.disk_show_write = on,
+                    "clock_date" => st.clock_show_date = on,
+                    _ => {}
+                }
                 let _ = self.settings.save();
                 Task::none()
             }
@@ -1853,7 +1881,7 @@ impl App {
                     status_kind: self.update_status_kind,
                     available: self.update_available.as_ref().map(|u| (u.version.clone(), u.changelog.clone())),
                 };
-                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), remote, update, self.cpu_driver_installed)
+                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), remote, update, self.cpu_driver_installed, self.tiles_section.clone())
             }
             WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
             WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),

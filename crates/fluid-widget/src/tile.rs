@@ -121,8 +121,10 @@ pub fn cpu_tile<'a>(cpu: &CpuData, s: &AppSettings, p: Palette, w: WarnView, dri
     // C# CPU primary: "{temp}°C  {load}%" on one line (temp present only when
     // a real reading exists), units inline-accent at primary size.
     let mut primary = row![].align_y(iced::Alignment::End);
-    if let Some((tv, tu)) = fmt::fmt_temp(cpu.temperature_c, s) {
-        primary = primary.push(big(tv, p, s)).push(unit_inline(tu, accent, s)).push(Space::with_width(8));
+    if s.cpu_show_temp {
+        if let Some((tv, tu)) = fmt::fmt_temp(cpu.temperature_c, s) {
+            primary = primary.push(big(tv, p, s)).push(unit_inline(tu, accent, s)).push(Space::with_width(8));
+        }
     }
     primary = primary
         .push(big(format!("{:.0}", cpu.usage_percent), p, s))
@@ -131,10 +133,10 @@ pub fn cpu_tile<'a>(cpu: &CpuData, s: &AppSettings, p: Palette, w: WarnView, dri
     // C# v1.25 "turn on temperature" affordance: when there's no real reading
     // and the optional sensor driver isn't installed, the tile offers to enable
     // it (with a small dismiss). Replaces the clock line while shown.
-    let show_hint = cpu.temperature_c.is_none() && !driver_installed && !s.cpu_temp_hint_dismissed;
+    let show_hint = s.cpu_show_temp && cpu.temperature_c.is_none() && !driver_installed && !s.cpu_temp_hint_dismissed;
     let secondary: Element<'a, Message> = if show_hint {
         cpu_temp_hint(p, s)
-    } else {
+    } else if s.cpu_show_clock {
         match cpu.clock_mhz {
             Some(m) => row![
                 small(format!("{:.0}", m), p, s),
@@ -143,6 +145,8 @@ pub fn cpu_tile<'a>(cpu: &CpuData, s: &AppSettings, p: Palette, w: WarnView, dri
             ].align_y(iced::Alignment::End).into(),
             None => Space::with_height(0).into(),
         }
+    } else {
+        Space::with_height(0).into()
     };
 
     tile_container(column![
@@ -218,24 +222,28 @@ pub fn gpu_tile<'a>(gpu: &GpuData, s: &AppSettings, p: Palette, w: WarnView) -> 
     };
 
     let mut primary = row![].align_y(iced::Alignment::End);
-    if let Some((tv, tu)) = fmt::fmt_temp(gpu.temperature_c, s) {
-        primary = primary.push(big(tv, p, s)).push(unit_inline(tu, accent, s)).push(Space::with_width(8));
+    if s.gpu_show_temp {
+        if let Some((tv, tu)) = fmt::fmt_temp(gpu.temperature_c, s) {
+            primary = primary.push(big(tv, p, s)).push(unit_inline(tu, accent, s)).push(Space::with_width(8));
+        }
     }
     primary = primary
         .push(big(format!("{:.0}", gpu.usage_percent), p, s))
         .push(unit_inline("%".into(), accent, s));
 
     let mut sec = column![].spacing(1).align_x(iced::Alignment::Center);
-    if let Some(m) = gpu.clock_mhz {
-        sec = sec.push(
-            row![
-                small(format!("{:.0}", m), p, s),
-                Space::with_width(3),
-                small_unit("MHz".into(), accent, s),
-            ].align_y(iced::Alignment::End)
-        );
+    if s.gpu_show_clock {
+        if let Some(m) = gpu.clock_mhz {
+            sec = sec.push(
+                row![
+                    small(format!("{:.0}", m), p, s),
+                    Space::with_width(3),
+                    small_unit("MHz".into(), accent, s),
+                ].align_y(iced::Alignment::End)
+            );
+        }
     }
-    if gpu.vram_used_mb > 0.0 && gpu.vram_total_mb > 0.0 {
+    if s.gpu_show_vram && gpu.vram_used_mb > 0.0 && gpu.vram_total_mb > 0.0 {
         sec = sec.push(
             row![
                 small(format!("{:.1}/{:.1}", gpu.vram_used_mb / 1024.0, gpu.vram_total_mb / 1024.0), p, s),
@@ -268,16 +276,20 @@ pub fn ram_tile<'a>(ram: &RamData, s: &AppSettings, p: Palette, w: WarnView) -> 
         unit("GB".into(), accent, s),
     ].align_y(iced::Alignment::End);
 
-    let secondary = row![
-        small(format!("{:.0}", ram.usage_percent), p, s),
-        small_unit("%".into(), accent, s),
-        small(format!(" of {:.1}", total_gb), p, s),
-        Space::with_width(3),
-        small_unit("GB".into(), accent, s),
-    ].align_y(iced::Alignment::End);
+    let secondary: Element<'a, Message> = if s.ram_show_details {
+        row![
+            small(format!("{:.0}", ram.usage_percent), p, s),
+            small_unit("%".into(), accent, s),
+            small(format!(" of {:.1}", total_gb), p, s),
+            Space::with_width(3),
+            small_unit("GB".into(), accent, s),
+        ].align_y(iced::Alignment::End).into()
+    } else {
+        Space::with_height(0).into()
+    };
 
     // Subheader: RAM type + rated speed, e.g. "DDR5-6000" (C# behaviour).
-    let ram_label = if ram.speed_mhz > 0 {
+    let ram_label = if s.ram_show_speed && ram.speed_mhz > 0 {
         if !ram.mem_type.is_empty() { format!("{}-{}", ram.mem_type, ram.speed_mhz) }
         else { format!("{} MHz", ram.speed_mhz) }
     } else {
@@ -339,11 +351,9 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
             container(line_value(v, u, p, accent, s)).width(value_w).align_x(iced::alignment::Horizontal::Left),
         ].align_y(iced::Alignment::Center).into()
     };
-    let lines = column![
-        dline("R:", rv, ru),
-        dline("W:", wv, wu),
-    ]
-    .spacing(4);
+    let mut lines = column![].spacing(4);
+    if s.disk_show_read { lines = lines.push(dline("R:", rv, ru)); }
+    if s.disk_show_write { lines = lines.push(dline("W:", wv, wu)); }
 
     tile_container(column![
         header("Disk".into(), p, s),
@@ -447,11 +457,9 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
             line_value(v, u, p, accent, s),
         ].align_y(iced::Alignment::Center).into()
     };
-    let lines = column![
-        nline(true, down > 0, down_color, dv, du),
-        nline(false, up > 0, up_color, uv, uu),
-    ]
-    .spacing(4);
+    let mut lines = column![].spacing(4);
+    if s.net_show_down { lines = lines.push(nline(true, down > 0, down_color, dv, du)); }
+    if s.net_show_up { lines = lines.push(nline(false, up > 0, up_color, uv, uu)); }
 
     tile_container(column![
         header("Network".into(), p, s),
@@ -490,16 +498,20 @@ pub fn clock_tile<'a>(s: &AppSettings, p: Palette, w: WarnView) -> Element<'a, M
     let date_text = |t: String| text(t).size(date_size)
         .font(named_font(&s.secondary_font, Weight::Normal))
         .style(move |_| iced::widget::text::Style { color: Some(dc) });
-    let secondary = column![
-        date_text(format!("{},", weekday)),
-        row![
-            date_text(format!("{} ", month)),
-            text(day_n.to_string()).size(date_size)
-                .font(named_font(&s.secondary_font, Weight::Normal))
-                .style(move |_| iced::widget::text::Style { color: Some(accent) }),
-            date_text(suffix.to_string()),
-        ],
-    ].align_x(iced::Alignment::Center);
+    let secondary: Element<'a, Message> = if s.clock_show_date {
+        column![
+            date_text(format!("{},", weekday)),
+            row![
+                date_text(format!("{} ", month)),
+                text(day_n.to_string()).size(date_size)
+                    .font(named_font(&s.secondary_font, Weight::Normal))
+                    .style(move |_| iced::widget::text::Style { color: Some(accent) }),
+                date_text(suffix.to_string()),
+            ],
+        ].align_x(iced::Alignment::Center).into()
+    } else {
+        Space::with_height(0).into()
+    };
 
     tile_container(column![
         header("Clock".into(), p, s),

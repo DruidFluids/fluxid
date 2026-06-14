@@ -99,7 +99,23 @@ pub struct AppSettings {
     /// Show a green/red connection-status dot on the widget's remote-device
     /// switcher tabs.
     pub show_remote_status_dot: bool,
+
+    // ── Per-tile field visibility (all default ON) ──
+    #[serde(default = "def_true")] pub cpu_show_temp: bool,
+    #[serde(default = "def_true")] pub cpu_show_clock: bool,
+    #[serde(default = "def_true")] pub gpu_show_temp: bool,
+    #[serde(default = "def_true")] pub gpu_show_clock: bool,
+    #[serde(default = "def_true")] pub gpu_show_vram: bool,
+    #[serde(default = "def_true")] pub ram_show_speed: bool,
+    #[serde(default = "def_true")] pub ram_show_details: bool,
+    #[serde(default = "def_true")] pub net_show_down: bool,
+    #[serde(default = "def_true")] pub net_show_up: bool,
+    #[serde(default = "def_true")] pub disk_show_read: bool,
+    #[serde(default = "def_true")] pub disk_show_write: bool,
+    #[serde(default = "def_true")] pub clock_show_date: bool,
 }
+
+fn def_true() -> bool { true }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -176,6 +192,12 @@ impl Default for AppSettings {
             first_run_complete: false,
             cpu_temp_hint_dismissed: false,
             show_remote_status_dot: true,
+            cpu_show_temp: true, cpu_show_clock: true,
+            gpu_show_temp: true, gpu_show_clock: true, gpu_show_vram: true,
+            ram_show_speed: true, ram_show_details: true,
+            net_show_down: true, net_show_up: true,
+            disk_show_read: true, disk_show_write: true,
+            clock_show_date: true,
         }
     }
 }

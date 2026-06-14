@@ -77,6 +77,7 @@ pub fn view<'a>(
     remote: RemoteView,
     update: UpdateView,
     cpu_driver_installed: bool,
+    tiles_open: Option<String>,
 ) -> Element<'a, Message> {
     // ── Style helpers ──
     let sh = |label: &str, tip: &'static str| -> Element<'a, Message> {
@@ -389,17 +390,96 @@ pub fn view<'a>(
         ],
     ].spacing(2);
 
-    // ── Tabbed layout: one category at a time, so the window stays small and
-    // never needs a scrollbar. ──
-    let tiles_tab: Element<'a, Message> = column![
+    // ── Tiles tab: one expandable section per tile (accordion). Each holds the
+    // tile's visibility, label, per-field toggles, and its own options, so all
+    // of a tile's settings live in one place. ──
+    let _ = (&tiles_grid, &tile_labels); // superseded by the per-tile sections
+    let field_tog = |label: &str, on: bool, key: &'static str| -> Element<'a, Message> {
+        row![
+            toggler(on).size(13).on_toggle(move |v| Message::SetTileField(key.to_string(), v)).style(crate::style::toggler_style(p)),
+            text(label.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+        ].spacing(6).align_y(iced::Alignment::Center).into()
+    };
+    let names = ["CPU", "GPU", "RAM", "Network", "Disk", "Clock"];
+    let internals = ["CPU", "GPU", "RAM", "Network", "Disk", "Clock"];
+    let open_is = |n: &str| tiles_open.as_deref() == Some(n);
+
+    // Bodies (built unconditionally so temp_row/network/disk are consumed once).
+    let cpu_body: Element<'a, Message> = column![
+        row![
+            name_input(&settings.cpu_custom_name, &cpu_name, cpu_auto, Message::SetCpuName),
+            Space::with_width(8),
+            pill("Auto".into(), cpu_auto, Message::SetCpuName(String::new())),
+            Space::with_width(4),
+            pill("Custom".into(), !cpu_auto, Message::Noop),
+        ].spacing(0).align_y(iced::Alignment::Center),
         temp_row,
-        Space::with_height(6),
-        sh("Tiles", "Choose which sensors appear on the widget."), tiles_grid,
-        Space::with_height(6),
-        sh("Tile Labels", "Override the auto-detected hardware name shown on each tile."), tile_labels,
-        Space::with_height(6),
-        sh("Layout", "Stack tiles vertically (tall) or horizontally (wide)."), layout_pills,
-    ].spacing(4).into();
+        row![field_tog("Temperature", settings.cpu_show_temp, "cpu_temp"), field_tog("Clock", settings.cpu_show_clock, "cpu_clock")].spacing(10),
+    ].spacing(6).into();
+    let gpu_body: Element<'a, Message> = column![
+        row![
+            name_input(&settings.gpu_custom_name, &gpu_name, gpu_auto, Message::SetGpuName),
+            Space::with_width(8),
+            pill("Auto".into(), gpu_auto, Message::SetGpuName(String::new())),
+            Space::with_width(4),
+            pill("Custom".into(), !gpu_auto, Message::Noop),
+        ].spacing(0).align_y(iced::Alignment::Center),
+        row![field_tog("Temperature", settings.gpu_show_temp, "gpu_temp"), field_tog("Clock", settings.gpu_show_clock, "gpu_clock"), field_tog("VRAM", settings.gpu_show_vram, "gpu_vram")].spacing(10),
+    ].spacing(6).into();
+    let ram_body: Element<'a, Message> =
+        row![field_tog("Speed / type", settings.ram_show_speed, "ram_speed"), field_tog("Usage detail", settings.ram_show_details, "ram_details")].spacing(10).into();
+    let net_body: Element<'a, Message> = column![
+        row![field_tog("Download", settings.net_show_down, "net_down"), field_tog("Upload", settings.net_show_up, "net_up")].spacing(10),
+        network,
+    ].spacing(6).into();
+    let disk_body: Element<'a, Message> = column![
+        row![field_tog("Read", settings.disk_show_read, "disk_read"), field_tog("Write", settings.disk_show_write, "disk_write")].spacing(10),
+        disk,
+    ].spacing(6).into();
+    let clock_body: Element<'a, Message> = row![field_tog("Date", settings.clock_show_date, "clock_date")].into();
+    let mut bodies = [Some(cpu_body), Some(gpu_body), Some(ram_body), Some(net_body), Some(disk_body), Some(clock_body)];
+
+    let mut tcol = column![].spacing(3);
+    for (i, (disp, intern)) in names.iter().zip(internals.iter()).enumerate() {
+        let open = open_is(disp);
+        let vis = settings.visible_tiles.iter().any(|v| v == intern);
+        let internal = intern.to_string();
+        let nm = disp.to_string();
+        let chev = if open { "\u{25BE}" } else { "\u{25B8}" };
+        let header = row![
+            toggler(vis).size(14).on_toggle(move |on| Message::ToggleTile(internal.clone(), on)).style(crate::style::toggler_style(p)),
+            Space::with_width(6),
+            button(row![
+                text(disp.to_string()).size(12).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                    .style(move |_| iced::widget::text::Style { color: Some(if open { p.accent } else { p.text }) }),
+                Space::with_width(Length::Fill),
+                text(chev.to_string()).size(10)
+                    .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
+            ].align_y(iced::Alignment::Center))
+            .width(Length::Fill).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 6.0 })
+            .style(move |_: &iced::Theme, status: button::Status| {
+                let hover = matches!(status, button::Status::Hovered);
+                button::Style {
+                    background: Some(iced::Background::Color(if hover || open { iced::Color { a: p.tile.a * 0.6, ..p.tile } } else { iced::Color::TRANSPARENT })),
+                    border: Border { radius: 5.0.into(), ..Border::default() },
+                    ..Default::default()
+                }
+            })
+            .on_press(Message::ToggleTileSection(nm.clone())),
+        ].align_y(iced::Alignment::Center);
+        tcol = tcol.push(header);
+        let body = bodies[i].take().unwrap();
+        if open {
+            tcol = tcol.push(
+                container(body).width(Length::Fill)
+                    .padding(iced::Padding { top: 4.0, right: 2.0, bottom: 8.0, left: 24.0 })
+            );
+        }
+    }
+    tcol = tcol.push(Space::with_height(6));
+    tcol = tcol.push(sh("Layout", "Stack tiles vertically (tall) or horizontally (wide)."));
+    tcol = tcol.push(layout_pills);
+    let tiles_tab: Element<'a, Message> = tcol.into();
 
     // ════════════════════════════════════════════════════════════
     //  RIGHT COLUMN  (Appearance / Font / Remote / Updates)
@@ -919,10 +999,6 @@ pub fn view<'a>(
 
     let sensors_tab: Element<'a, Message> = column![
         sh("CPU Sensor Driver", "Optional signed driver (PawnIO) for accurate CPU temperature."), cpu_driver,
-        Space::with_height(6),
-        sh("Network", "Choose which adapter to monitor. Defaults to all adapters combined."), network,
-        Space::with_height(6),
-        sh("Disk", "Pick which physical disk the Disk tile should track. Defaults to the disk holding your system drive; its model shows under the tile header. Changes apply live \u{2014} no restart needed."), disk,
     ].spacing(4).into();
 
     let remote_tab: Element<'a, Message> = column![remote].spacing(4).into();
