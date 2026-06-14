@@ -18,5 +18,5 @@ tracing-subscriber = { workspace = true }
 fluid-sensor = { version = "2.0.0", path = "../fluid-sensor" }
 tray-icon = "0.24.1"
 chrono = "0.4.45"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_DirectWrite", "Win32_UI_HiDpi", "Win32_Graphics_Gdi"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_DirectWrite", "Win32_UI_HiDpi", "Win32_Graphics_Gdi", "Win32_System_Threading"] }
 winreg = "0.56.0"

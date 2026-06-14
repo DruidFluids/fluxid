@@ -75,7 +75,7 @@ fn unit<'a>(t: String, accent: Color, s: &AppSettings) -> Element<'a, Message> {
 // Secondary-line number: SecondaryFontSize (11+secondaryOffset), text@0.85.
 fn small<'a>(t: String, p: Palette, s: &AppSettings) -> Element<'a, Message> {
     let c = text085(p);
-    text(t).size(sz(11, s.secondary_font_offset, s))
+    text(t).size(sz(13, s.secondary_font_offset, s))
         .font(named_font(&s.secondary_font, Weight::Normal))
         .style(move |_| iced::widget::text::Style { color: Some(c) })
         .into()
@@ -83,7 +83,7 @@ fn small<'a>(t: String, p: Palette, s: &AppSettings) -> Element<'a, Message> {
 
 // Secondary-line unit ([a] segment): same size as the secondary number, accent.
 fn small_unit<'a>(t: String, accent: Color, s: &AppSettings) -> Element<'a, Message> {
-    text(t).size(sz(11, s.secondary_font_offset, s))
+    text(t).size(sz(13, s.secondary_font_offset, s))
         .font(named_font(&s.secondary_font, Weight::Normal))
         .style(move |_| iced::widget::text::Style { color: Some(accent) })
         .into()
@@ -265,7 +265,7 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
         ].align_y(iced::Alignment::Center),
     ]
     .spacing(4)
-    .align_x(iced::Alignment::Start);
+    .align_x(iced::Alignment::Center);
 
     tile_container(column![
         header("Disk".into(), p, s),
@@ -318,12 +318,13 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
             .font(named_font(&s.indicator_font, Weight::Bold))
             .style(move |_| iced::widget::text::Style { color: Some(col) });
         if glow && active {
+            // Soft diffuse halo (no hard box): low opacity + wide blur.
             container(t)
                 .style(move |_| iced::widget::container::Style {
                     shadow: iced::Shadow {
-                        color: Color { a: 0.95, ..accent },
+                        color: Color { a: 0.45, ..accent },
                         offset: iced::Vector::new(0.0, 0.0),
-                        blur_radius: 16.0,
+                        blur_radius: 24.0,
                     },
                     ..Default::default()
                 })
@@ -346,7 +347,7 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
         ].align_y(iced::Alignment::Center),
     ]
     .spacing(4)
-    .align_x(iced::Alignment::Start);
+    .align_x(iced::Alignment::Center);
 
     tile_container(column![
         header("Network".into(), p, s),

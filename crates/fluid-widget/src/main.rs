@@ -95,6 +95,56 @@ fn work_area() -> Option<(f32, f32, f32, f32)> {
 #[cfg(not(target_os = "windows"))]
 fn work_area() -> Option<(f32, f32, f32, f32)> { None }
 
+// Rects (logical coords) of our app's OTHER top-level windows (settings/popups)
+// so the widget can dock to its own settings window.
+#[cfg(target_os = "windows")]
+fn own_window_rects() -> Vec<(f32, f32, f32, f32)> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT};
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::HiDpi::GetDpiForWindow;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    };
+
+    let widget = widget_hwnd();
+    let scale = match widget {
+        Some(h) => { let d = unsafe { GetDpiForWindow(h) }; if d == 0 { 1.0 } else { d as f32 / 96.0 } }
+        None => 1.0,
+    };
+    struct Ctx { pid: u32, widget: isize, scale: f32, rects: Vec<(f32, f32, f32, f32)> }
+    let mut ctx = Ctx {
+        pid: unsafe { GetCurrentProcessId() },
+        widget: widget.map(|h| h.0 as isize).unwrap_or(0),
+        scale,
+        rects: Vec::new(),
+    };
+
+    unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> BOOL {
+        let ctx = &mut *(lp.0 as *mut Ctx);
+        let mut wpid = 0u32;
+        GetWindowThreadProcessId(h, Some(&mut wpid));
+        if wpid == ctx.pid && h.0 as isize != ctx.widget
+            && IsWindowVisible(h).as_bool() && !IsIconic(h).as_bool()
+        {
+            let mut r = RECT::default();
+            if GetWindowRect(h, &mut r).is_ok() {
+                let w = (r.right - r.left) as f32;
+                let hgt = (r.bottom - r.top) as f32;
+                if w > 120.0 && hgt > 120.0 {
+                    let s = ctx.scale;
+                    ctx.rects.push((r.left as f32 / s, r.top as f32 / s, r.right as f32 / s, r.bottom as f32 / s));
+                }
+            }
+        }
+        BOOL(1)
+    }
+    unsafe { let _ = EnumWindows(Some(cb), LPARAM(&mut ctx as *mut _ as isize)); }
+    ctx.rects
+}
+#[cfg(not(target_os = "windows"))]
+fn own_window_rects() -> Vec<(f32, f32, f32, f32)> { Vec::new() }
+
 #[cfg(target_os = "windows")]
 fn set_run_at_startup(on: bool) {
     use winreg::enums::HKEY_CURRENT_USER;
@@ -447,6 +497,30 @@ impl App {
         if ((x + sz.width) - r).abs() < m { x = r - sz.width; sr = true; }
         if (y - t).abs() < m { y = t; }
         if ((y + sz.height) - b).abs() < m { y = b - sz.height; sb = true; }
+
+        // Dock to our other windows' outer edges (e.g. the settings window).
+        if self.settings.snap_to_windows {
+            for (l2, t2, r2, b2) in own_window_rects() {
+                // Only consider windows that overlap vertically/horizontally so
+                // we dock side-by-side rather than to a far-away window.
+                let v_overlap = y < b2 && (y + sz.height) > t2;
+                let h_overlap = x < r2 && (x + sz.width) > l2;
+                if v_overlap {
+                    if ((x + sz.width) - l2).abs() < m { x = l2 - sz.width; }
+                    else if (x - r2).abs() < m { x = r2; }
+                    // align top/bottom edges with the window
+                    if (y - t2).abs() < m { y = t2; }
+                    else if ((y + sz.height) - b2).abs() < m { y = b2 - sz.height; }
+                }
+                if h_overlap {
+                    if ((y + sz.height) - t2).abs() < m { y = t2 - sz.height; }
+                    else if (y - b2).abs() < m { y = b2; }
+                    if (x - l2).abs() < m { x = l2; }
+                    else if ((x + sz.width) - r2).abs() < m { x = r2 - sz.width; }
+                }
+            }
+        }
+
         if (x - pos.x).abs() > 0.5 || (y - pos.y).abs() > 0.5 || sr || sb {
             Some((Point::new(x, y), sr, sb))
         } else {
