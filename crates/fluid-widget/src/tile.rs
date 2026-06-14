@@ -395,47 +395,55 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
         (accent.r * 255.0).round() as u8, (accent.g * 255.0).round() as u8, (accent.b * 255.0).round() as u8);
     // The glow SVG arrow spans ~17/32 of its box, so this makes the rendered
     // arrow match the text-glyph arrow size — identical size in every mode.
+    // Every mode renders the SAME SVG arrow at the SAME size (so Off / Blink /
+    // Fade / Glow are all identical geometry) — only the colour and, in Glow
+    // mode, the bloom/halo layers change. This keeps up/down arrows and all
+    // indicator modes pixel-identical.
     let glow_w = (arrow_size as f32) * 1.85;
-    let col_w = Length::Fixed(glow_w.max(30.0));
-    let value_w = Length::Fill;
+    let col_w = Length::Fixed(glow_w);
 
     let nline = |down_dir: bool, active: bool, col: Color, v: String, u: String| -> Element<'a, Message> {
-        // Glow mode: neon arrow — a radial bloom + a blurred accent stroke + a
-        // solid accent body + a white-hot core, for a real luminous tube look.
-        let arrow: Element<'a, Message> = if glow && active {
-            let d = if down_dir { "M16 7 V24 M9 16 L16 24 L23 16" } else { "M16 25 V8 M9 16 L16 8 L23 16" };
-            let svg_str = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\">\
-                 <defs>\
-                 <radialGradient id=\"h\" cx=\"50%\" cy=\"50%\" r=\"50%\">\
-                 <stop offset=\"0%\" stop-color=\"{c}\" stop-opacity=\"0.65\"/>\
-                 <stop offset=\"55%\" stop-color=\"{c}\" stop-opacity=\"0.18\"/>\
-                 <stop offset=\"100%\" stop-color=\"{c}\" stop-opacity=\"0\"/>\
-                 </radialGradient>\
-                 <filter id=\"b\" x=\"-60%\" y=\"-60%\" width=\"220%\" height=\"220%\"><feGaussianBlur stdDeviation=\"1.6\"/></filter>\
-                 </defs>\
-                 <circle cx=\"16\" cy=\"16\" r=\"16\" fill=\"url(#h)\"/>\
-                 <g fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\
-                 <path d=\"{d}\" stroke=\"{c}\" stroke-width=\"3.4\" opacity=\"0.9\" filter=\"url(#b)\"/>\
-                 <path d=\"{d}\" stroke=\"{c}\" stroke-width=\"2.2\" opacity=\"1\"/>\
-                 <path d=\"{d}\" stroke=\"#EAF5FF\" stroke-width=\"1.1\" opacity=\"0.95\"/>\
-                 </g></svg>",
-                c = accent_hex, d = d);
-            iced::widget::svg(iced::widget::svg::Handle::from_memory(svg_str.into_bytes()))
-                .width(Length::Fixed(glow_w)).height(Length::Fixed(glow_w))
-                .style(|_t, _s| iced::widget::svg::Style { color: None })
-                .into()
-        } else {
-            let glyph = if down_dir { "\u{2193}" } else { "\u{2191}" };
-            text(glyph.to_string()).size(arrow_size)
-                .font(named_font(&s.indicator_font, Weight::Bold))
-                .style(move |_| iced::widget::text::Style { color: Some(col) })
-                .into()
-        };
+        let d = if down_dir { "M16 7 V24 M9 16 L16 24 L23 16" } else { "M16 25 V8 M9 16 L16 8 L23 16" };
+        let body_hex = format!("#{:02X}{:02X}{:02X}",
+            (col.r * 255.0).round() as u8, (col.g * 255.0).round() as u8, (col.b * 255.0).round() as u8);
+        let mut layers = String::new();
+        if glow && active {
+            // Behind the body: radial bloom + a blurred accent stroke.
+            layers.push_str(&format!(
+                "<circle cx=\"16\" cy=\"16\" r=\"16\" fill=\"url(#h)\"/>\
+                 <path d=\"{d}\" stroke=\"{a}\" stroke-width=\"3.4\" opacity=\"0.9\" filter=\"url(#b)\"/>",
+                d = d, a = accent_hex));
+        }
+        // Solid body stroke — present in every mode, identical thickness.
+        layers.push_str(&format!(
+            "<path d=\"{d}\" stroke=\"{c}\" stroke-width=\"2.2\" opacity=\"{op:.3}\"/>",
+            d = d, c = body_hex, op = col.a));
+        if glow && active {
+            // White-hot core on top for the luminous-tube look.
+            layers.push_str(&format!("<path d=\"{d}\" stroke=\"#EAF5FF\" stroke-width=\"1.1\" opacity=\"0.95\"/>", d = d));
+        }
+        let svg_str = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\">\
+             <defs>\
+             <radialGradient id=\"h\" cx=\"50%\" cy=\"50%\" r=\"50%\">\
+             <stop offset=\"0%\" stop-color=\"{a}\" stop-opacity=\"0.65\"/>\
+             <stop offset=\"55%\" stop-color=\"{a}\" stop-opacity=\"0.18\"/>\
+             <stop offset=\"100%\" stop-color=\"{a}\" stop-opacity=\"0\"/>\
+             </radialGradient>\
+             <filter id=\"b\" x=\"-60%\" y=\"-60%\" width=\"220%\" height=\"220%\"><feGaussianBlur stdDeviation=\"1.6\"/></filter>\
+             </defs>\
+             <g fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\">{layers}</g></svg>",
+            a = accent_hex, layers = layers);
+        let arrow: Element<'a, Message> = iced::widget::svg(iced::widget::svg::Handle::from_memory(svg_str.into_bytes()))
+            .width(Length::Fixed(glow_w)).height(Length::Fixed(glow_w))
+            .style(|_t, _s| iced::widget::svg::Style { color: None })
+            .into();
+        // Value sizes to its content (no fill column squeezing it), so the unit
+        // never wraps; the fixed arrow column keeps up/down arrows aligned.
         row![
             container(arrow).width(col_w).align_x(iced::alignment::Horizontal::Center),
             Space::with_width(spacing),
-            container(line_value(v, u, p, accent, s)).width(value_w).align_x(iced::alignment::Horizontal::Left),
+            line_value(v, u, p, accent, s),
         ].align_y(iced::Alignment::Center).into()
     };
     let lines = column![
