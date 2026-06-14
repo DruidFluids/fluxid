@@ -574,8 +574,8 @@ pub fn view<'a>(
     // Randomize (dice): same size as cbtn; left = skin + colors, right = skin only.
     let dice: Element<'a, Message> = crate::style::with_tip(
         mouse_area(
-            container(text("\u{2684}").size(17).font(crate::style::ICONS)
-                .style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
+            container(text("\u{1F3B2}").size(15).font(crate::style::ICONS)
+                .style(move |_| iced::widget::text::Style { color: Some(p.accent) }))
                 .width(Length::Fixed(34.0)).height(Length::Fixed(28.0))
                 .align_x(iced::alignment::Horizontal::Center).align_y(iced::alignment::Vertical::Center)
                 .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 4.0.into(), width: 1.0, color: iced::Color { a: 0.4, ..p.muted } }, ..Default::default() })
