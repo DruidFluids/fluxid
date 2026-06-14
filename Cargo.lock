@@ -1335,6 +1335,8 @@ dependencies = [
  "fluid-remote",
  "fluid-sensor",
  "iced",
+ "reqwest",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

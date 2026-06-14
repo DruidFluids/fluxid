@@ -5,6 +5,7 @@ mod settings_panel;
 mod popups;
 mod fonts;
 mod hotkeys;
+mod updates;
 
 use fluid_core::sensor_data::SensorSnapshot;
 use fluid_core::settings::{AppSettings, Orientation, SnapPosition, TempUnit, WarnMetric};
@@ -365,6 +366,11 @@ struct App {
     // ── Utilities (Tweaks) ──
     blocklist_editor: iced::widget::text_editor::Content,
     blocklist_status: String,
+    // ── Updates ──
+    update_checking: bool,
+    update_status: String,
+    update_status_kind: u8, // 0 neutral, 1 good (green), 2 bad (red)
+    update_available: Option<(String, String, String)>, // version, changelog, url
     add_device_open: bool,
     new_device_name: String,
     new_device_ip: String,
@@ -411,6 +417,11 @@ enum Message {
     SetSyncFonts(bool), SetRandomizeFonts(bool),
     SetFont(u8, String),
     SetUpdateMode(String),
+    CheckForUpdates,
+    UpdateCheckDone(updates::CheckResult),
+    DownloadUpdate,
+    UpdateDownloadDone(Result<(), String>),
+    UpdateLater,
     PresetSlotClick(u8),
     EditColor(u8),
     ArmHotkey(hotkeys::HotkeyTarget),
@@ -477,6 +488,7 @@ impl App {
             hotkeys: Some(hotkeys_mgr), hotkey_rx: Some(hotkey_rx), capturing_hotkey: None,
             blocklist_editor: iced::widget::text_editor::Content::with_text(&blocklist_text),
             blocklist_status: String::new(),
+            update_checking: false, update_status: String::new(), update_status_kind: 0, update_available: None,
             add_device_open: false,
             new_device_name: String::new(), new_device_ip: String::new(), new_device_key: String::new(),
             device_test_status: String::new(), device_test_ok: false,
@@ -489,7 +501,14 @@ impl App {
         let (_id, open) = window::open(window::Settings {
             size, position, decorations: false, transparent: true, resizable: false, level, ..Default::default()
         });
-        (app, open.map(|id| Message::WindowOpened(id, WindowKind::Widget)))
+        let open_task = open.map(|id| Message::WindowOpened(id, WindowKind::Widget));
+        // Auto mode: silently check for updates on launch.
+        let task = if app.settings.update_check_mode == fluid_core::settings::UpdateMode::Auto {
+            Task::batch([open_task, Task::done(Message::CheckForUpdates)])
+        } else {
+            open_task
+        };
+        (app, task)
     }
 
     fn effective_orientation(&self) -> Orientation {
@@ -629,6 +648,24 @@ impl App {
             }
         }
         if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
+    }
+
+    // ── Updates helper ──
+    fn last_checked_label(&self) -> String {
+        match &self.settings.last_update_check {
+            None => "Last checked: never".into(),
+            Some(raw) => match chrono::DateTime::parse_from_rfc3339(raw) {
+                Ok(dt) => {
+                    let ago = chrono::Local::now().signed_duration_since(dt);
+                    let mins = ago.num_minutes();
+                    if mins < 1 { "Last checked: just now".into() }
+                    else if mins < 60 { format!("Last checked: {mins} min ago") }
+                    else if ago.num_hours() < 24 { format!("Last checked: {}h ago", ago.num_hours()) }
+                    else { format!("Last checked: {}", dt.format("%b %d")) }
+                }
+                Err(_) => "Last checked: never".into(),
+            },
+        }
     }
 
     // ── Remote monitoring helpers ──
@@ -1259,8 +1296,46 @@ impl App {
                     "Off" => fluid_core::settings::UpdateMode::Off,
                     _ => fluid_core::settings::UpdateMode::Manual,
                 };
+                let _ = self.settings.save();
                 Task::none()
             }
+            Message::CheckForUpdates => {
+                if self.update_checking { return Task::none(); }
+                self.update_checking = true;
+                self.update_status = "Checking\u{2026}".into();
+                self.update_status_kind = 0;
+                self.update_available = None;
+                Task::perform(updates::check(env!("CARGO_PKG_VERSION").to_string()), Message::UpdateCheckDone)
+            }
+            Message::UpdateCheckDone(result) => {
+                self.update_checking = false;
+                self.settings.last_update_check = Some(chrono::Local::now().to_rfc3339());
+                let _ = self.settings.save();
+                match result {
+                    updates::CheckResult::UpToDate => { self.update_status = "Up to date".into(); self.update_status_kind = 1; }
+                    updates::CheckResult::Available { version, changelog, url } => {
+                        self.update_status = String::new();
+                        self.update_available = Some((version, updates::changelog_bullets(&changelog), url));
+                    }
+                    updates::CheckResult::Failed(e) => {
+                        tracing::debug!("update check failed: {e}");
+                        self.update_status = "Check failed \u{2014} try again later".into();
+                        self.update_status_kind = 2;
+                    }
+                }
+                Task::none()
+            }
+            Message::DownloadUpdate => {
+                let url = match &self.update_available { Some((_, _, u)) => u.clone(), None => return Task::none() };
+                self.update_status = "Downloading\u{2026}".into();
+                self.update_status_kind = 0;
+                Task::perform(updates::download_and_launch(url), Message::UpdateDownloadDone)
+            }
+            Message::UpdateDownloadDone(result) => match result {
+                Ok(()) => iced::exit(),
+                Err(e) => { self.update_status = format!("Download failed: {e}"); self.update_status_kind = 2; Task::none() }
+            },
+            Message::UpdateLater => { self.update_available = None; self.update_status = String::new(); Task::none() }
             Message::PresetSlotClick(slot) => {
                 let idx = slot as usize;
                 if idx < self.settings.presets.len() {
@@ -1355,7 +1430,15 @@ impl App {
                     test_ok: self.device_test_ok,
                 };
                 let capturing_ct = self.capturing_hotkey == Some(hotkeys::HotkeyTarget::ClickThrough);
-                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, capturing_ct, remote)
+                let update = settings_panel::UpdateView {
+                    current_version: env!("CARGO_PKG_VERSION").to_string(),
+                    mode: self.settings.update_check_mode.clone(),
+                    last_checked: self.last_checked_label(),
+                    status: self.update_status.clone(),
+                    status_kind: self.update_status_kind,
+                    available: self.update_available.as_ref().map(|(v, c, _)| (v.clone(), c.clone())),
+                };
+                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, capturing_ct, remote, update)
             }
             WindowKind::Tools => popups::tools_view(&self.settings, p, id),
             WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),

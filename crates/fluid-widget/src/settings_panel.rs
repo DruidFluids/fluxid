@@ -26,6 +26,16 @@ pub struct RemoteView {
     pub test_ok: bool,
 }
 
+/// Update-section UI state passed in from the App.
+pub struct UpdateView {
+    pub current_version: String,
+    pub mode: fluid_core::settings::UpdateMode,
+    pub last_checked: String,
+    pub status: String,
+    pub status_kind: u8, // 0 neutral, 1 good, 2 bad
+    pub available: Option<(String, String)>, // version, changelog
+}
+
 /// A click-to-capture hotkey field: shows the bound combo, "(click to set)"
 /// when empty, or "(press keys…)" while armed. Pressing it emits `arm_msg`.
 pub(crate) fn hotkey_field<'a>(combo: &str, capturing: bool, width: f32, arm_msg: Message, p: Palette) -> Element<'a, Message> {
@@ -56,6 +66,7 @@ pub fn view<'a>(
     editing_color: Option<u8>,
     capturing_click_through: bool,
     remote: RemoteView,
+    update: UpdateView,
 ) -> Element<'a, Message> {
     // ── Style helpers ──
     let sh = |label: &str, tip: &'static str| -> Element<'a, Message> {
@@ -728,28 +739,71 @@ pub fn view<'a>(
     let remote = remote_col;
 
     // ── Updates box ──
-    let updates = container(column![
+    let inline_btn = |lbl: &str, msg: Message| -> Element<'a, Message> {
+        button(text(lbl.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }))
+            .padding([4, 12])
+            .style(move |_: &iced::Theme, status: button::Status| {
+                let hover = matches!(status, button::Status::Hovered);
+                button::Style { background: Some(iced::Background::Color(p.tile)),
+                    text_color: if hover { p.accent } else { p.text },
+                    border: Border { radius: 4.0.into(), width: 1.0, color: if hover { p.accent } else { p.muted } }, ..Default::default() }
+            })
+            .on_press(msg).into()
+    };
+    let status_color = match update.status_kind {
+        1 => iced::Color::from_rgb8(0x58, 0xC8, 0x58),
+        2 => iced::Color::from_rgb8(0xC0, 0x60, 0x60),
+        _ => p.muted,
+    };
+    let mut updates_col = column![
         row![
             text("Current version").size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             Space::with_width(Length::Fill),
-            text("v2.0.0-alpha").size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+            text(format!("v{}", update.current_version)).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
         ],
         Space::with_height(4),
+    ].spacing(3);
+
+    // Mode pills + Check now (or Download/Later when an update is available).
+    let mut action_row = row![
+        pill("Auto".into(), update.mode == fluid_core::settings::UpdateMode::Auto, Message::SetUpdateMode("Auto".into())),
+        pill("Manual".into(), update.mode == fluid_core::settings::UpdateMode::Manual, Message::SetUpdateMode("Manual".into())),
+        pill("Off".into(), update.mode == fluid_core::settings::UpdateMode::Off, Message::SetUpdateMode("Off".into())),
+        Space::with_width(Length::Fill),
+    ].spacing(4).align_y(iced::Alignment::Center);
+    if update.available.is_some() {
+        action_row = action_row.push(inline_btn("Download", Message::DownloadUpdate));
+        action_row = action_row.push(inline_btn("Later", Message::UpdateLater));
+    } else {
+        action_row = action_row.push(inline_btn("Check now", Message::CheckForUpdates));
+    }
+    updates_col = updates_col.push(action_row);
+
+    if !update.status.is_empty() {
+        updates_col = updates_col.push(
+            text(update.status.clone()).size(11).style(move |_| iced::widget::text::Style { color: Some(status_color) })
+        );
+    }
+    if let Some((ver, changelog)) = &update.available {
+        updates_col = updates_col.push(
+            text(format!("New version: v{ver}")).size(12)
+                .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                .style(move |_| iced::widget::text::Style { color: Some(p.accent) })
+        );
+        updates_col = updates_col.push(
+            container(scrollable(text(changelog.clone()).size(10).style(move |_| iced::widget::text::Style { color: Some(p.text) })).height(Length::Fixed(80.0)))
+                .padding(6).width(Length::Fill)
+                .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(crate::style::field_bg(p))), border: Border { radius: 4.0.into(), ..Border::default() }, ..Default::default() })
+        );
+    }
+    updates_col = updates_col.push(
         row![
-            pill("Auto".into(), settings.update_check_mode == fluid_core::settings::UpdateMode::Auto, Message::SetUpdateMode("Auto".into())),
-            pill("Manual".into(), settings.update_check_mode == fluid_core::settings::UpdateMode::Manual, Message::SetUpdateMode("Manual".into())),
-            pill("Off".into(), settings.update_check_mode == fluid_core::settings::UpdateMode::Off, Message::SetUpdateMode("Off".into())),
             Space::with_width(Length::Fill),
-            button(text("Check now").size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }))
-                .padding([4, 12])
-                .style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 4.0.into(), width: 1.0, color: p.muted }, ..Default::default() })
-                .on_press(Message::Noop),
-        ].spacing(4).align_y(iced::Alignment::Center),
-        row![
-            Space::with_width(Length::Fill),
-            text("Last checked: never").size(9).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
-        ],
-    ].spacing(3))
+            text(update.last_checked.clone()).size(9).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
+        ]
+    );
+
+    let updates = container(updates_col)
     .padding([8, 12])
     .width(Length::Fill)
     .style(move |_| iced::widget::container::Style {
