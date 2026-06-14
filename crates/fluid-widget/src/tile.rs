@@ -344,15 +344,16 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
     // with the Network tile so values line up across tiles, never wrap, and
     // never jump. The gap is the spacing slider.
     let col_w = Length::Fixed(30.0);
-    let value_w = Length::Fill;
     let dline = |lbl: &str, v: String, u: String| -> Element<'a, Message> {
+        // Value sizes to its content (no fill column squeezing it) so the number
+        // and unit never wrap/clip; the fixed label column keeps R:/W: aligned.
         row![
             container(text(lbl.to_string()).size(label_size)
                 .font(named_font(&s.indicator_font, Weight::Bold))
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
                 .width(col_w).align_x(iced::alignment::Horizontal::Right),
             Space::with_width(spacing),
-            container(line_value(v, u, p, accent, s)).width(value_w).align_x(iced::alignment::Horizontal::Left),
+            line_value(v, u, p, accent, s),
         ].align_y(iced::Alignment::Center).into()
     };
     let mut lines = column![].spacing(4);
