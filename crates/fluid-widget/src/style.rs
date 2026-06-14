@@ -125,8 +125,6 @@ pub fn dark_input_style(p: Palette) -> impl Fn(&iced::Theme, iced::widget::text_
 /// Monochrome icon glyphs (die, folder, moon, sun, undo, arrows) — Segoe UI
 /// Symbol, loaded at startup. Same font the C# app uses for these icons.
 pub const ICONS: iced::Font = iced::Font::with_name("Segoe UI Symbol");
-/// Color-emoji font (the dice 🎲), matching the C# WPF rendering.
-pub const EMOJI: iced::Font = iced::Font::with_name("Segoe UI Emoji");
 
 fn font_cache() -> &'static Mutex<HashMap<String, &'static str>> {
     static C: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();

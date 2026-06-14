@@ -49,11 +49,6 @@ fn main() -> iced::Result {
         if let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\seguisym.ttf") {
             app = app.font(bytes);
         }
-        // Segoe UI Emoji so the dice (and any color emoji) render as the full
-        // colour picture, exactly like the C# WPF version.
-        if let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\seguiemj.ttf") {
-            app = app.font(bytes);
-        }
     }
     app.run_with(App::new)
 }
