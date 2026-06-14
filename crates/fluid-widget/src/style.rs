@@ -17,6 +17,28 @@ pub fn field_bg(p: Palette) -> Color {
     Color { r: p.bg.r * f, g: p.bg.g * f, b: p.bg.b * f, a: 1.0 }
 }
 
+/// Themed slider style (accent rail + accent handle), matching the settings
+/// sliders. For standalone `slider()` calls outside `marked_slider`.
+pub fn slider_style(p: Palette) -> impl Fn(&iced::Theme, iced::widget::slider::Status) -> iced::widget::slider::Style + Copy {
+    use iced::widget::slider::{Handle, HandleShape, Rail, Style};
+    move |_t, _s| Style {
+        rail: Rail {
+            backgrounds: (
+                iced::Background::Color(p.accent),
+                iced::Background::Color(Color { a: p.muted.a * 0.25, ..p.muted }),
+            ),
+            width: 2.0,
+            border: iced::Border { radius: 1.0.into(), width: 0.0, color: Color::TRANSPARENT },
+        },
+        handle: Handle {
+            shape: HandleShape::Circle { radius: 6.0 },
+            background: iced::Background::Color(p.accent),
+            border_width: 2.0,
+            border_color: p.bg,
+        },
+    }
+}
+
 /// C# `InlineBtn`: tile fill, 1px border, radius 6; hover accents text + border.
 /// Auto-width (shrinks to its label). The single source of truth for the
 /// inline-action buttons used across Settings and the popups.

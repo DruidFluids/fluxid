@@ -542,7 +542,8 @@ pub fn view<'a>(
             text(format!("{} hex", lbl)).size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             Space::with_width(8),
             text_input("#AARRGGBB", &hex).size(11).font(iced::Font::with_name("Consolas")).width(160)
-                .on_input(move |s| Message::SetHexColor(slot, s)),
+                .on_input(move |s| Message::SetHexColor(slot, s))
+                .style(crate::style::dark_input_style(p)),
             Space::with_width(8),
             button(text("done").size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
                 .padding([3, 10]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 4.0.into(), ..Border::default() }, ..Default::default() })

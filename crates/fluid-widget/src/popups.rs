@@ -211,7 +211,8 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
         row![
             label("Threshold", p), Space::with_width(Length::Fill),
             text_input("", &format!("{}", w.threshold as i64)).size(11).width(70)
-                .on_input(move |s| Message::SetWarnThresholdStr(k1.clone(), s)),
+                .on_input(move |s| Message::SetWarnThresholdStr(k1.clone(), s))
+                .style(crate::style::dark_input_style(p)),
             text(unit_label.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
         ].spacing(6).align_y(iced::Alignment::Center),
         // Metric
@@ -220,7 +221,7 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
             pick_list(metrics, Some(sel_metric), move |s: String| {
                 let m = if s == "Load" { WarnMetric::Load } else { WarnMetric::Temperature };
                 Message::SetWarnMetric(k2.clone(), m)
-            }).text_size(11).width(140),
+            }).text_size(11).width(140).style(crate::style::pick_list_style(p)),
         ].spacing(6).align_y(iced::Alignment::Center),
         // Flash
         row![
@@ -229,7 +230,8 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
             Space::with_width(Length::Fill),
             text_input("#FFFF3333", &w.flash_color).size(10).width(100)
                 .font(iced::Font::with_name("Consolas"))
-                .on_input(move |s| Message::SetWarnFlashColor(k4.clone(), s)),
+                .on_input(move |s| Message::SetWarnFlashColor(k4.clone(), s))
+                .style(crate::style::dark_input_style(p)),
         ].spacing(6).align_y(iced::Alignment::Center),
         // Gradient
         row![
@@ -608,7 +610,7 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
     let oid = id.clone();
     col = col.push(section("Opacity"));
     col = col.push(row![
-        slider(0.3..=1.0, po.opacity, move |v| Message::PopoutOpacity(oid.clone(), v)).step(0.05).width(Length::Fill),
+        slider(0.3..=1.0, po.opacity, move |v| Message::PopoutOpacity(oid.clone(), v)).step(0.05).width(Length::Fill).style(crate::style::slider_style(p)),
         Space::with_width(8),
         text(format!("{:.0}%", po.opacity * 100.0)).size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
     ].spacing(4).align_y(iced::Alignment::Center));
