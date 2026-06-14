@@ -164,15 +164,22 @@ fn own_window_rects(blocklist: &[String]) -> Vec<(f32, f32, f32, f32)> {
 #[cfg(not(target_os = "windows"))]
 fn own_window_rects(_blocklist: &[String]) -> Vec<(f32, f32, f32, f32)> { Vec::new() }
 
-// Launch an elevated PowerShell running `inner` (UAC prompt). Used by the
-// Utilities window for the Chris Titus / MAS one-liners.
+// Open a URL in the user's default browser (non-elevated). Used by the
+// Utilities window instead of executing remote scripts.
 #[cfg(target_os = "windows")]
-fn run_powershell_admin(inner: &str) {
-    let arg = format!("Start-Process powershell -ArgumentList '-NoProfile','-Command','{inner}' -Verb RunAs");
-    let _ = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &arg]).spawn();
+fn open_url(url: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let to_w = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    let op = to_w("open");
+    let u = to_w(url);
+    unsafe {
+        ShellExecuteW(None, PCWSTR(op.as_ptr()), PCWSTR(u.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+    }
 }
 #[cfg(not(target_os = "windows"))]
-fn run_powershell_admin(_inner: &str) {}
+fn open_url(_url: &str) {}
 
 // Titles of visible top-level windows (for the snap-blocklist Pick Window list).
 #[cfg(target_os = "windows")]
@@ -374,7 +381,7 @@ struct App {
     update_checking: bool,
     update_status: String,
     update_status_kind: u8, // 0 neutral, 1 good (green), 2 bad (red)
-    update_available: Option<(String, String, String)>, // version, changelog, url
+    update_available: Option<updates::PendingUpdate>,
     appearance_status: String,
     add_device_open: bool,
     new_device_name: String,
@@ -393,7 +400,7 @@ enum Message {
     WindowMoved(window::Id, Point),
     OpenSettings, HideWidget, SaveClose, ResetDefaults, Noop,
     OpenTools, OpenAlerts, OpenGameMode, OpenHelp, OpenUtilities, ClosePopup(window::Id),
-    RunChrisTitus, RunMassgrave,
+    OpenUrl(String),
     BlocklistAction(iced::widget::text_editor::Action), SaveBlocklist,
     PickWindow, PickWindowChosen(String),
     ShowWidgetMenu, WidgetMenuSettings, WidgetMenuExit, WindowUnfocused(window::Id),
@@ -1009,8 +1016,7 @@ impl App {
             Message::OpenGameMode => Task::batch([self.close_kind(WindowKind::Tools), self.open_popup(WindowKind::GameMode, popups::GAME_MODE_SIZE)]),
             Message::OpenHelp => Task::batch([self.close_kind(WindowKind::Tools), self.open_popup(WindowKind::Help, popups::HELP_SIZE)]),
             Message::OpenUtilities => Task::batch([self.close_kind(WindowKind::Tools), self.open_popup(WindowKind::Utilities, popups::UTILITIES_SIZE)]),
-            Message::RunChrisTitus => { run_powershell_admin("irm christitus.com/win | iex"); Task::none() }
-            Message::RunMassgrave => { run_powershell_admin("irm https://get.activated.win | iex"); Task::none() }
+            Message::OpenUrl(url) => { open_url(&url); Task::none() }
             Message::BlocklistAction(action) => { self.blocklist_editor.perform(action); Task::none() }
             Message::SaveBlocklist => {
                 let lines: Vec<String> = self.blocklist_editor.text()
@@ -1354,9 +1360,10 @@ impl App {
                 let _ = self.settings.save();
                 match result {
                     updates::CheckResult::UpToDate => { self.update_status = "Up to date".into(); self.update_status_kind = 1; }
-                    updates::CheckResult::Available { version, changelog, url } => {
+                    updates::CheckResult::Available(mut update) => {
                         self.update_status = String::new();
-                        self.update_available = Some((version, updates::changelog_bullets(&changelog), url));
+                        update.changelog = updates::changelog_bullets(&update.changelog);
+                        self.update_available = Some(update);
                     }
                     updates::CheckResult::Failed(e) => {
                         tracing::debug!("update check failed: {e}");
@@ -1367,10 +1374,13 @@ impl App {
                 Task::none()
             }
             Message::DownloadUpdate => {
-                let url = match &self.update_available { Some((_, _, u)) => u.clone(), None => return Task::none() };
+                let (url, sha) = match &self.update_available {
+                    Some(u) => (u.url.clone(), u.sha256.clone()),
+                    None => return Task::none(),
+                };
                 self.update_status = "Downloading\u{2026}".into();
                 self.update_status_kind = 0;
-                Task::perform(updates::download_and_launch(url), Message::UpdateDownloadDone)
+                Task::perform(updates::download_and_launch(url, sha), Message::UpdateDownloadDone)
             }
             Message::UpdateDownloadDone(result) => match result {
                 Ok(()) => iced::exit(),
@@ -1503,7 +1513,7 @@ impl App {
                     last_checked: self.last_checked_label(),
                     status: self.update_status.clone(),
                     status_kind: self.update_status_kind,
-                    available: self.update_available.as_ref().map(|(v, c, _)| (v.clone(), c.clone())),
+                    available: self.update_available.as_ref().map(|u| (u.version.clone(), u.changelog.clone())),
                 };
                 settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, capturing_ct, self.appearance_status.clone(), remote, update)
             }

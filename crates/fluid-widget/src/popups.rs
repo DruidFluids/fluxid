@@ -430,7 +430,7 @@ pub fn help_view<'a>(_settings: &AppSettings, p: Palette, win_id: window::Id) ->
 
 // ── Utilities (Tweaks) ───────────────────────────────────────────────────────
 
-pub const UTILITIES_SIZE: iced::Size = iced::Size::new(460.0, 560.0);
+pub const UTILITIES_SIZE: iced::Size = iced::Size::new(460.0, 430.0);
 pub const WINDOW_PICKER_SIZE: iced::Size = iced::Size::new(420.0, 460.0);
 
 pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: Palette, win_id: window::Id) -> Element<'a, Message> {
@@ -456,13 +456,12 @@ pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: 
 
     let ct = card(
         "Chris Titus Win Utility",
-        "Debloat Windows, manage updates, install apps, optimize performance.",
-        row![ibtn("Run Chris Titus Utility", Message::RunChrisTitus), Space::with_width(Length::Fill)].into(),
-    );
-    let mas = card(
-        "Microsoft Activation Scripts (MAS)",
-        "Activate Windows and Microsoft Office via multiple methods.",
-        row![ibtn("Run MAS", Message::RunMassgrave), Space::with_width(Length::Fill)].into(),
+        "Debloat Windows, manage updates, install apps, optimize performance. \
+         Opens the official site so you can review and run it yourself.",
+        row![
+            ibtn("Open website", Message::OpenUrl("https://christitus.com/windows-tool/".into())),
+            Space::with_width(Length::Fill),
+        ].into(),
     );
 
     let editor = text_editor(blocklist)
@@ -491,7 +490,7 @@ pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: 
     );
 
     let disclaimer = container(
-        text("Disclaimer: These tools are maintained by third-party developers and are not bundled with, vetted by, or endorsed by fluidMonitor. Scripts are fetched from the internet and executed with administrator privileges. Use at your own risk.".to_string())
+        text("Disclaimer: Third-party tools linked here are not bundled with, vetted by, or endorsed by fluidMonitor. fluidMonitor only opens their official website \u{2014} review anything you download or run yourself. Use at your own risk.".to_string())
             .size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) })
     )
     .width(Length::Fill).padding(iced::Padding { top: 8.0, right: 10.0, bottom: 8.0, left: 10.0 })
@@ -502,7 +501,7 @@ pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: 
     });
 
     let body = scrollable(
-        column![ct, mas, blocklist_card, disclaimer].spacing(8)
+        column![ct, blocklist_card, disclaimer].spacing(8)
             .padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 0.0 })
     ).height(Length::Fill);
     shell("UTILITIES", win_id, p, body.into())
