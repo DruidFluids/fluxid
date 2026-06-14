@@ -248,9 +248,9 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
     let label_size = sz(13, s.indicator_font_offset + s.disk_label_font_offset, s);
     let spacing = s.disk_label_spacing.max(0.0);
 
-    // Fixed right-aligned label column + left-aligned values, so R:/W: line up
-    // AND every number shares the same left edge. The block shrinks to content
-    // and is centered as a group by the tile container.
+    // Static layout: fixed label column + fixed-width left-aligned value column.
+    // Nothing shifts when R/W change digit count; the gap is the spacing slider.
+    let value_w = Length::Fixed(90.0 * s.ui_scale);
     let dline = |lbl: &str, v: String, u: String| -> Element<'a, Message> {
         row![
             container(text(lbl.to_string()).size(label_size)
@@ -258,15 +258,14 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
                 .width(Length::Fixed(20.0)).align_x(iced::alignment::Horizontal::Right),
             Space::with_width(spacing),
-            line_value(v, u, p, accent, s),
+            container(line_value(v, u, p, accent, s)).width(value_w).align_x(iced::alignment::Horizontal::Left),
         ].align_y(iced::Alignment::Center).into()
     };
     let lines = column![
         dline("R:", rv, ru),
         dline("W:", wv, wu),
     ]
-    .spacing(4)
-    .align_x(iced::Alignment::Start);
+    .spacing(4);
 
     tile_container(column![
         header("Disk".into(), p, s),
@@ -303,7 +302,7 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
         if !indicator_on || !active {
             p.muted
         } else if glow {
-            crate::style::lerp(accent, Color::WHITE, 0.5)
+            accent
         } else {
             Color { a: accent.a * pulse.clamp(0.0, 1.0), ..accent }
         }
@@ -314,23 +313,50 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
     // ArrowFontSize = 16 + indicatorOffset + arrowOffset.
     let arrow_size = sz(16, s.indicator_font_offset + s.arrow_font_offset, s);
     let spacing = s.network_arrow_spacing.max(0.0);
+    // Static layout: fixed value column so numbers don't shift with digit count.
+    let value_w = Length::Fixed(90.0 * s.ui_scale);
+    let accent_hex = format!("#{:02X}{:02X}{:02X}",
+        (accent.r * 255.0).round() as u8, (accent.g * 255.0).round() as u8, (accent.b * 255.0).round() as u8);
+    // SVG arrow spans ~half the 24 viewBox, so ~2x makes it match the text size.
+    let glow_w = (arrow_size as f32) * 1.9;
+    let arrow_col = if glow { glow_w } else { 24.0 };
 
-    let nline = |glyph: &str, col: Color, v: String, u: String| -> Element<'a, Message> {
-        let arrow = text(glyph.to_string()).size(arrow_size)
-            .font(named_font(&s.indicator_font, Weight::Bold))
-            .style(move |_| iced::widget::text::Style { color: Some(col) });
+    let nline = |down_dir: bool, active: bool, col: Color, v: String, u: String| -> Element<'a, Message> {
+        // Glow mode: SVG arrow with a Gaussian-blur halo (a real soft glow that
+        // follows the arrow shape — no box). Other modes use the text glyph.
+        let arrow: Element<'a, Message> = if glow && active {
+            let d = if down_dir { "M12 6 V17 M7 12 L12 17 L17 12" } else { "M12 18 V7 M7 12 L12 7 L17 12" };
+            // Layered wide round strokes (low opacity) approximate a soft glow
+            // that follows the arrow shape — no blur filter, no box.
+            let svg_str = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\">\
+                 <g fill=\"none\" stroke=\"{c}\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\
+                 <path d=\"{d}\" stroke-width=\"9\" opacity=\"0.07\"/>\
+                 <path d=\"{d}\" stroke-width=\"6.5\" opacity=\"0.12\"/>\
+                 <path d=\"{d}\" stroke-width=\"4.5\" opacity=\"0.22\"/>\
+                 <path d=\"{d}\" stroke-width=\"2.6\" opacity=\"1\"/></g></svg>",
+                c = accent_hex, d = d);
+            iced::widget::svg(iced::widget::svg::Handle::from_memory(svg_str.into_bytes()))
+                .width(Length::Fixed(glow_w)).height(Length::Fixed(glow_w))
+                .into()
+        } else {
+            let glyph = if down_dir { "\u{2193}" } else { "\u{2191}" };
+            text(glyph.to_string()).size(arrow_size)
+                .font(named_font(&s.indicator_font, Weight::Bold))
+                .style(move |_| iced::widget::text::Style { color: Some(col) })
+                .into()
+        };
         row![
-            container(arrow).width(Length::Fixed(20.0)).align_x(iced::alignment::Horizontal::Right),
+            container(arrow).width(Length::Fixed(arrow_col)).align_x(iced::alignment::Horizontal::Center),
             Space::with_width(spacing),
-            line_value(v, u, p, accent, s),
+            container(line_value(v, u, p, accent, s)).width(value_w).align_x(iced::alignment::Horizontal::Left),
         ].align_y(iced::Alignment::Center).into()
     };
     let lines = column![
-        nline("\u{2193}", down_color, dv, du),
-        nline("\u{2191}", up_color, uv, uu),
+        nline(true, down > 0, down_color, dv, du),
+        nline(false, up > 0, up_color, uv, uu),
     ]
-    .spacing(4)
-    .align_x(iced::Alignment::Start);
+    .spacing(4);
 
     tile_container(column![
         header("Network".into(), p, s),
