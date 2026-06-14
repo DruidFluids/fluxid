@@ -315,7 +315,7 @@ fn cursor_logical_pos() -> Option<(f32, f32)> {
 fn cursor_logical_pos() -> Option<(f32, f32)> { None }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum WindowKind { Widget, Settings, Alerts, GameMode, Help, WidgetMenu, Popout, Utilities, WindowPicker, ThemeStore, PopoutConfig, CpuDriver }
+enum WindowKind { Widget, Settings, Alerts, GameMode, Help, WidgetMenu, Popout, Utilities, WindowPicker, ThemeStore, PopoutConfig, CpuDriver, Picker, ConfirmDelete }
 
 // Settings window is a single FIXED size for every tab — it never grows or
 // shrinks when switching tabs. The height is sized to the tallest tab
@@ -345,6 +345,8 @@ fn kind_key(kind: WindowKind) -> Option<&'static str> {
         WindowKind::ThemeStore => Some("themestore"),
         WindowKind::PopoutConfig => Some("popoutconfig"),
         WindowKind::CpuDriver => Some("cpudriver"),
+        WindowKind::Picker => Some("picker"),
+        WindowKind::ConfirmDelete => Some("confirmdelete"),
         WindowKind::Popout => Some("popout"),
         WindowKind::Widget | WindowKind::Settings | WindowKind::WidgetMenu => None,
     }
@@ -506,6 +508,10 @@ struct App {
     tiles_section: Option<String>,
     // Saved-Themes slot armed for save (click number -> save icon -> click to save).
     preset_arming: Option<u8>,
+    // Picker popup mode: false = themes, true = skins.
+    picker_skins: bool,
+    // Saved-Themes slot pending delete confirmation.
+    confirm_delete_slot: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -555,7 +561,9 @@ enum Message {
     DownloadUpdate,
     UpdateDownloadDone(Result<(), String>),
     UpdateLater,
-    PresetSlotClick(u8), PresetSlotArm(u8),
+    PresetSlotClick(u8),
+    OpenThemePicker, OpenSkinPicker, ApplyThemePreset(usize), ApplySkin(String),
+    ConfirmDeletePreset(u8), DeletePresetConfirmed,
     EditColor(u8),
     SetSettingsTab(usize),
     ArmHotkey(hotkeys::HotkeyTarget),
@@ -648,6 +656,8 @@ impl App {
             widget_device: None,
             tiles_section: None,
             preset_arming: None,
+            picker_skins: false,
+            confirm_delete_slot: None,
         };
         let size = app.widget_size();
         let position = if app.settings.first_run_complete {
@@ -1828,10 +1838,45 @@ impl App {
                     Task::none()
                 }
             }
-            // Right-click a slot → arm it (so a saved slot can be overwritten).
-            Message::PresetSlotArm(slot) => {
-                self.preset_arming = Some(slot);
-                Task::none()
+            // Right-click a saved slot → ask to delete it.
+            Message::ConfirmDeletePreset(slot) => {
+                let idx = slot as usize;
+                if self.settings.presets.get(idx).is_some_and(|p| !p.accent.is_empty()) {
+                    self.confirm_delete_slot = Some(slot);
+                    self.open_popup(WindowKind::ConfirmDelete, popups::CONFIRM_DELETE_SIZE)
+                } else {
+                    Task::none()
+                }
+            }
+            Message::DeletePresetConfirmed => {
+                if let Some(slot) = self.confirm_delete_slot.take() {
+                    let idx = slot as usize;
+                    if idx < self.settings.presets.len() {
+                        self.settings.presets[idx] = fluid_core::settings::PresetSlot {
+                            name: String::new(), bg: String::new(), tile: String::new(),
+                            accent: String::new(), text: String::new(), muted: String::new(), skin: String::new(),
+                        };
+                        while self.settings.presets.last().is_some_and(|p| p.accent.is_empty()) {
+                            self.settings.presets.pop();
+                        }
+                        let _ = self.settings.save();
+                    }
+                }
+                self.close_kind(WindowKind::ConfirmDelete)
+            }
+            Message::OpenThemePicker => { self.picker_skins = false; self.open_popup(WindowKind::Picker, popups::PICKER_SIZE) }
+            Message::OpenSkinPicker => { self.picker_skins = true; self.open_popup(WindowKind::Picker, popups::PICKER_SIZE) }
+            Message::ApplyThemePreset(i) => {
+                self.push_appearance_undo();
+                style::apply_preset(&mut self.settings, i);
+                let _ = self.settings.save();
+                Task::batch([self.close_kind(WindowKind::Picker), self.resize_widget()])
+            }
+            Message::ApplySkin(name) => {
+                self.push_appearance_undo();
+                self.settings.active_skin = name;
+                let _ = self.settings.save();
+                Task::batch([self.close_kind(WindowKind::Picker), self.resize_widget()])
             }
             Message::DiskLabelCycle => {
                 // C# cycle: Drive letter > Model > Both.
@@ -1916,6 +1961,8 @@ impl App {
                 popups::popout_config_view(dev, p, id)
             }
             WindowKind::CpuDriver => popups::cpu_driver_view(&self.cpu_dialog, self.cpu_driver_installed, p, id),
+            WindowKind::Picker => popups::picker_view(self.picker_skins, &self.settings, p, id),
+            WindowKind::ConfirmDelete => popups::confirm_delete_view(self.confirm_delete_slot, p, id),
             WindowKind::WidgetMenu => popups::widget_menu_view(p),
             WindowKind::Popout => self.popout_view(id, p),
             WindowKind::Widget => self.widget_view(id, p),

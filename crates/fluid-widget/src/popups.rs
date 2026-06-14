@@ -931,3 +931,112 @@ fn franchise_detail<'a>(pi: usize, p: Palette, win_id: window::Id) -> Element<'a
     ];
     shell("THEME STORE", win_id, p, body.into())
 }
+
+// ── Theme / Skin pickers (click the name in Appearance to browse all) ─────────
+
+pub const PICKER_SIZE: iced::Size = iced::Size::new(470.0, 560.0);
+pub const CONFIRM_DELETE_SIZE: iced::Size = iced::Size::new(340.0, 160.0);
+
+/// A small box rendering a skin's rough look (radius + border), like the colors
+/// dot but for skins.
+fn skin_preview<'a>(name: &str, p: Palette, w: f32, h: f32) -> Element<'a, Message> {
+    let s = crate::style::skin_style(name);
+    let bc = s.border_color(&p);
+    container(Space::new(Length::Fixed(w), Length::Fixed(h)))
+        .style(move |_| iced::widget::container::Style {
+            background: Some(iced::Background::Color(p.tile)),
+            border: Border { radius: (s.tile_radius * 0.5).into(), width: s.tile_border.max(s.widget_border).min(2.0), color: bc },
+            ..Default::default()
+        })
+        .into()
+}
+
+pub fn picker_view<'a>(skins: bool, settings: &AppSettings, p: Palette, win_id: window::Id) -> Element<'a, Message> {
+    let chip = |hex: &str| -> Element<'a, Message> {
+        let c = crate::style::parse_hex(hex, p.muted);
+        container(Space::new(Length::Fixed(14.0), Length::Fixed(14.0))).style(move |_| iced::widget::container::Style {
+            background: Some(iced::Background::Color(c)),
+            border: Border { radius: 3.0.into(), width: 1.0, color: Color { a: 0.3, ..p.muted } }, ..Default::default()
+        }).into()
+    };
+    let card_style = move |sel: bool| move |_: &iced::Theme, status: button::Status| {
+        let hover = matches!(status, button::Status::Hovered);
+        button::Style {
+            background: Some(iced::Background::Color(if sel { Color { a: 0.18, ..p.accent } } else { Color { a: p.tile.a * 0.6, ..p.tile } })),
+            border: Border { radius: 8.0.into(), width: 1.0, color: if sel || hover { p.accent } else { Color { a: 0.2, ..p.muted } } },
+            ..Default::default()
+        }
+    };
+
+    let mut cards: Vec<Element<'a, Message>> = Vec::new();
+    if skins {
+        let active = settings.active_skin.clone();
+        for name in crate::style::skin_names() {
+            let sel = name == active;
+            let nm = name.to_string();
+            cards.push(
+                button(row![
+                    skin_preview(&name, p, 32.0, 22.0),
+                    Space::with_width(8),
+                    text(name.clone()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+                ].align_y(iced::Alignment::Center))
+                .width(Length::FillPortion(1)).padding(8).style(card_style(sel))
+                .on_press(Message::ApplySkin(nm)).into()
+            );
+        }
+    } else {
+        let cur = crate::style::match_preset(settings);
+        for (i, t) in crate::style::THEME_PRESETS.iter().enumerate() {
+            let sel = cur == Some(i);
+            cards.push(
+                button(column![
+                    text(t.0.to_string()).size(11)
+                        .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                        .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+                    Space::with_height(5),
+                    row![chip(t.1), chip(t.2), chip(t.3), chip(t.4), chip(t.5)].spacing(4),
+                ].spacing(0))
+                .width(Length::FillPortion(1)).padding(8).style(card_style(sel))
+                .on_press(Message::ApplyThemePreset(i)).into()
+            );
+        }
+    }
+
+    // Two cards per row.
+    let mut col = column![].spacing(8);
+    let mut it = cards.into_iter();
+    loop {
+        match (it.next(), it.next()) {
+            (Some(a), Some(b)) => col = col.push(row![a, b].spacing(8)),
+            (Some(a), None) => { col = col.push(row![a, Space::with_width(Length::FillPortion(1))].spacing(8)); break; }
+            _ => break,
+        }
+    }
+    let title = if skins { "CHOOSE A SKIN" } else { "CHOOSE A THEME" };
+    let body = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill);
+    shell(title, win_id, p, body.into())
+}
+
+pub fn confirm_delete_view<'a>(slot: Option<u8>, p: Palette, win_id: window::Id) -> Element<'a, Message> {
+    let n = slot.map(|s| s as u16 + 1).unwrap_or(0);
+    let red = Color::from_rgb(0.90, 0.33, 0.24);
+    let delete = button(text("Delete").size(12).style(move |_| iced::widget::text::Style { color: Some(Color::WHITE) }))
+        .padding([6, 18])
+        .style(move |_, _| button::Style { background: Some(iced::Background::Color(red)), border: Border { radius: 6.0.into(), ..Border::default() }, ..Default::default() })
+        .on_press(Message::DeletePresetConfirmed);
+    let body = column![
+        text("Delete saved theme?").size(14)
+            .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+        text(format!("Saved theme slot {n} will be removed. This can't be undone."))
+            .size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
+        Space::with_height(Length::Fill),
+        row![
+            Space::with_width(Length::Fill),
+            crate::style::inline_btn("Cancel", Message::ClosePopup(win_id), p),
+            Space::with_width(8),
+            delete,
+        ].align_y(iced::Alignment::Center),
+    ].spacing(8).height(Length::Fill);
+    shell("CONFIRM", win_id, p, body.into())
+}

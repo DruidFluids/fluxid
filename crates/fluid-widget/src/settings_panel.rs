@@ -508,7 +508,7 @@ pub fn view<'a>(
             ((i + 1).to_string(), p.tile, p.text)
         };
         let tip = if armed { "Click again to save the current theme here".to_string() }
-            else if preset.is_some() { format!("Apply saved theme {} (right-click to overwrite)", i + 1) }
+            else if preset.is_some() { format!("Apply saved theme {} (right-click to delete)", i + 1) }
             else { format!("Save the current theme to slot {}", i + 1) };
         let slot = mouse_area(
             container(text(label).size(11).font(crate::style::ICONS)
@@ -522,7 +522,7 @@ pub fn view<'a>(
                 })
         )
         .on_press(Message::PresetSlotClick(i))
-        .on_right_press(Message::PresetSlotArm(i));
+        .on_right_press(Message::ConfirmDeletePreset(i));
         saved_row = saved_row.push(crate::style::with_tip(slot, &tip, p));
         saved_row = saved_row.push(Space::with_width(3));
     }
@@ -583,18 +583,32 @@ pub fn view<'a>(
         .on_press(Message::RandomizeAppearance).on_right_press(Message::RandomizeSkinOnly),
         "Randomize \u{2014} left-click: skin + colors; right-click: skin only", p);
 
-    // The name cycler field (fill) shared by both rows. `round_dot` = colors dot.
-    let name_field = |round_dot: bool, label: String, msg: Message| -> Element<'a, Message> {
-        let (dw, dh, dr): (u16, u16, f32) = if round_dot { (7, 7, 4.0) } else { (2, 14, 0.0) };
-        button(
+    // The name cycler field (fill) shared by both rows. Clicking the name opens
+    // the full picker; the ‹ › arrows still step one at a time. `lead` is the
+    // small preview shown left of the name (accent dot for themes, skin box).
+    let name_field = |lead: Element<'a, Message>, label: String, msg: Message, tip: &str| -> Element<'a, Message> {
+        crate::style::with_tip(button(
             container(row![
-                container(Space::new(dw, dh)).style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(p.accent)), border: Border { radius: dr.into(), ..Border::default() }, ..Default::default() }),
+                lead,
                 Space::with_width(6),
                 text(label).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
             ].align_y(iced::Alignment::Center)).center_x(Length::Fill)
         ).width(Length::Fill).padding([4, 6])
         .style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 4.0.into(), ..Border::default() }, ..Default::default() })
-        .on_press(msg).into()
+        .on_press(msg), tip, p)
+    };
+    // Accent dot for the theme field.
+    let theme_dot: Element<'a, Message> = container(Space::new(Length::Fixed(7.0), Length::Fixed(7.0)))
+        .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(p.accent)), border: Border { radius: 4.0.into(), ..Border::default() }, ..Default::default() }).into();
+    // Mini preview of the active skin's rough look (radius + border).
+    let skin_prev: Element<'a, Message> = {
+        let s = crate::style::skin_style(&settings.active_skin);
+        container(Space::new(Length::Fixed(22.0), Length::Fixed(13.0)))
+            .style(move |_| iced::widget::container::Style {
+                background: Some(iced::Background::Color(p.tile)),
+                border: Border { radius: (s.tile_radius * 0.5).into(), width: s.tile_border.max(s.widget_border).clamp(1.0, 2.5), color: iced::Color { a: 0.6, ..p.muted } },
+                ..Default::default()
+            }).into()
     };
 
     // Top row (Skins): Download · Undo · Randomize | ‹ skin ›
@@ -604,7 +618,7 @@ pub fn view<'a>(
         dice,
         Space::with_width(4),
         crate::style::with_tip(pill("\u{2039}".into(), false, Message::SkinPrev), "Previous skin", p),
-        name_field(false, settings.active_skin.clone(), Message::SkinNext),
+        name_field(skin_prev, settings.active_skin.clone(), Message::OpenSkinPicker, "Browse all skins"),
         crate::style::with_tip(pill("\u{203A}".into(), false, Message::SkinNext), "Next skin", p),
     ].align_y(iced::Alignment::Center).spacing(3);
 
@@ -615,7 +629,7 @@ pub fn view<'a>(
         Space::with_width(34),
         Space::with_width(4),
         crate::style::with_tip(pill("\u{2039}".into(), false, Message::ThemePrev), "Previous theme", p),
-        name_field(true, theme_name, Message::ThemeNext),
+        name_field(theme_dot, theme_name, Message::OpenThemePicker, "Browse all themes"),
         crate::style::with_tip(pill("\u{203A}".into(), false, Message::ThemeNext), "Next theme", p),
     ].align_y(iced::Alignment::Center).spacing(3);
 
