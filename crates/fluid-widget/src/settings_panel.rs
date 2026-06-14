@@ -575,7 +575,8 @@ pub fn view<'a>(
         mouse_area(
             container(text("\u{1F3B2}").size(15).font(crate::style::ICONS)
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
-                .width(Length::Fixed(34.0)).height(Length::Fixed(28.0)).center_x(Length::Fill).center_y(Length::Fill)
+                .width(Length::Fixed(34.0)).height(Length::Fixed(28.0))
+                .align_x(iced::alignment::Horizontal::Center).align_y(iced::alignment::Vertical::Center)
                 .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 4.0.into(), width: 1.0, color: iced::Color { a: 0.4, ..p.muted } }, ..Default::default() })
         )
         .on_press(Message::RandomizeAppearance).on_right_press(Message::RandomizeSkinOnly),
