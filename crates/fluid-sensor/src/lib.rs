@@ -11,6 +11,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(windows)]
 mod pawnio;
 
+/// Drop the cached CPU-temp driver probe so the next poll re-detects PawnIO.
+/// Call right after the user installs or removes the driver. Must be called on
+/// the same thread that polls sensors.
+pub fn refresh_cpu_temp_driver() {
+    #[cfg(windows)]
+    pawnio::reset();
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum GpuBackend {
     Nvml,

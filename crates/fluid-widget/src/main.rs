@@ -1125,6 +1125,9 @@ impl App {
             }
             Message::CpuDriverInstallDone(outcome) => {
                 self.cpu_driver_installed = cpu_driver::is_installed();
+                // Re-probe sensors so a just-installed driver lights up the CPU
+                // temperature without an app restart (C# RecheckSensors parity).
+                fluid_sensor::refresh_cpu_temp_driver();
                 self.cpu_dialog = match outcome.result {
                     cpu_driver::InstallResult::Installed | cpu_driver::InstallResult::AlreadyPresent =>
                         CpuDriverStage::Done {
@@ -1146,6 +1149,7 @@ impl App {
             }
             Message::CpuDriverUninstallDone(outcome) => {
                 self.cpu_driver_installed = cpu_driver::is_installed();
+                fluid_sensor::refresh_cpu_temp_driver();
                 self.cpu_dialog = match outcome.result {
                     cpu_driver::InstallResult::Installed | cpu_driver::InstallResult::AlreadyPresent =>
                         CpuDriverStage::Done {

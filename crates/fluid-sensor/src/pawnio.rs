@@ -23,15 +23,17 @@ const INTEL_MSR_MODULE: &[u8] = include_bytes!("../resources/pawnio/IntelMSR.bin
 #[cfg(target_arch = "x86_64")]
 const AMD_FAMILY17_MODULE: &[u8] = include_bytes!("../resources/pawnio/AMDFamily17.bin");
 
+#[cfg(target_arch = "x86_64")]
+thread_local! {
+    // Outer None = not yet probed; inner None = PawnIO unavailable here.
+    static STATE: std::cell::RefCell<Option<Option<imp::PawnIo>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Accurate CPU package/die temperature in °C, or `None` if PawnIO isn't
 /// installed/loadable or this CPU isn't supported by a bundled module.
 #[cfg(target_arch = "x86_64")]
 pub fn cpu_temp() -> Option<f32> {
-    use std::cell::RefCell;
-    thread_local! {
-        // Outer None = not yet probed; inner None = PawnIO unavailable here.
-        static STATE: RefCell<Option<Option<imp::PawnIo>>> = const { RefCell::new(None) };
-    }
     STATE.with(|cell| {
         let mut guard = cell.borrow_mut();
         if guard.is_none() {
@@ -42,10 +44,21 @@ pub fn cpu_temp() -> Option<f32> {
     })
 }
 
+/// Drop the cached probe so the next `cpu_temp()` re-detects PawnIO. Call after
+/// the user installs/removes the driver so the change takes effect without an
+/// app restart. Must run on the same (poller) thread that calls `cpu_temp()`.
+#[cfg(target_arch = "x86_64")]
+pub fn reset() {
+    STATE.with(|cell| *cell.borrow_mut() = None);
+}
+
 #[cfg(not(target_arch = "x86_64"))]
 pub fn cpu_temp() -> Option<f32> {
     None
 }
+
+#[cfg(not(target_arch = "x86_64"))]
+pub fn reset() {}
 
 #[cfg(target_arch = "x86_64")]
 mod imp {
