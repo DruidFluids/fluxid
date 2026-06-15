@@ -1320,6 +1320,7 @@ name = "fluid-setup"
 version = "2.0.0"
 dependencies = [
  "iced",
+ "image",
  "tokio",
  "windows 0.62.2",
  "winreg 0.56.0",
