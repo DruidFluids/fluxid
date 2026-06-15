@@ -364,7 +364,7 @@ pub fn view<'a>(
         row![
             column![fl("Traffic indicator"), tooltip(cycle_btn(traffic_label, Message::TrafficCycle), tip_box("Click to cycle: Off > Blink > Fade > Glow", p), TipPos::Top)].width(Length::FillPortion(1)).spacing(2),
             Space::with_width(12),
-            pslider("Arrow position", format!("{:.0}px", settings.network_arrow_spacing), 0.0, 8.0, settings.network_arrow_spacing, 6.0, 1.0, Message::SetArrowSpacing),
+            pslider("Arrow position", format!("{:.0}px", settings.network_arrow_spacing.min(8.0)), 0.0, 8.0, settings.network_arrow_spacing.min(8.0), 5.0, 1.0, Message::SetArrowSpacing),
         ],
         Space::with_height(4),
         row![
@@ -381,7 +381,7 @@ pub fn view<'a>(
         row![
             column![fl("Tile label"), tooltip(cycle_btn(disk_label_text, Message::DiskLabelCycle), tip_box("Click to cycle: Drive letter, Model, Both", p), TipPos::Top)].width(Length::FillPortion(1)).spacing(2),
             Space::with_width(12),
-            pslider("R: / W: position", format!("{:.0}px", settings.disk_label_spacing), 0.0, 14.0, settings.disk_label_spacing, 8.0, 1.0, Message::SetDiskLabelSpacing),
+            pslider("R: / W: position", format!("{:.0}px", settings.disk_label_spacing.min(14.0)), 0.0, 14.0, settings.disk_label_spacing.min(14.0), 8.0, 1.0, Message::SetDiskLabelSpacing),
         ],
         Space::with_height(4),
         row![
