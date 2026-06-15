@@ -127,6 +127,10 @@ fn centered_stat_line<'a>(
     left: Element<'a, Message>, v: String, u: String,
     p: Palette, accent: Color, gap: f32, s: &AppSettings,
 ) -> Element<'a, Message> {
+    // Clamp the per-side gap so a large spacing-slider value (or an old saved one
+    // from the previous wider range) can never push number+unit past the tile's
+    // inner width and clip.
+    let gap = gap.clamp(0.0, 12.0);
     let number = text(v).size(sz(18, s.primary_font_offset, s))
         .font(named_font(&s.primary_font, Weight::Bold))
         .wrapping(iced::widget::text::Wrapping::None)
