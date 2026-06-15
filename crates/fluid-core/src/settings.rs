@@ -359,11 +359,37 @@ impl AppSettings {
     pub fn load() -> Result<Self> {
         Self::migrate_legacy();
         let path = Self::config_path();
-        if path.exists() { let json = std::fs::read_to_string(&path)?; Ok(serde_json::from_str(&json)?) } else { Ok(Self::default()) }
+        if !path.exists() { return Ok(Self::default()); }
+        let json = std::fs::read_to_string(&path)?;
+        match serde_json::from_str(&json) {
+            Ok(s) => Ok(s),
+            Err(e) => {
+                // Corrupt / unparseable config: preserve it as a .bak before
+                // falling back to defaults, so the next save doesn't silently
+                // overwrite (and permanently destroy) the user's settings — and
+                // they can recover by hand if they want to.
+                let bak = path.with_extension("json.bak");
+                let _ = std::fs::rename(&path, &bak);
+                eprintln!(
+                    "fluid-core: settings.json was unreadable ({e}); backed up to {} and reset to defaults",
+                    bak.display()
+                );
+                Ok(Self::default())
+            }
+        }
     }
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
-        std::fs::write(&path, serde_json::to_string_pretty(self)?)?; Ok(())
+        let json = serde_json::to_string_pretty(self)?;
+        // Atomic write: serialize to a sibling temp file, then rename over the
+        // real file. A crash/kill mid-write can then never leave a truncated or
+        // half-written settings.json (which would reset every setting on the
+        // next launch). rename() within the same directory is atomic on Windows
+        // and Unix, and replaces the existing file.
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(())
     }
 }
