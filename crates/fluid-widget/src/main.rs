@@ -556,6 +556,8 @@ struct App {
     tiles_section: Option<String>,
     // Saved-Themes slot armed for save (click number -> save icon -> click to save).
     preset_arming: Option<u8>,
+    // Appearance share-code dialog: Some((is_export, code_text)) when open.
+    share_dialog: Option<(bool, String)>,
     // Picker popup mode: false = themes, true = skins.
     picker_skins: bool,
     // Saved-Themes slot pending delete confirmation.
@@ -608,6 +610,7 @@ enum Message {
     SetFont(u8, String),
     SetUpdateMode(String),
     ExportAppearance, ImportAppearance, ImportAppearanceCode(Option<String>),
+    ShareCodeInput(String), CopyShareCode, ApplyShareCode, CloseShareDialog,
     CheckForUpdates,
     UpdateCheckDone(updates::CheckResult),
     DownloadUpdate,
@@ -709,6 +712,7 @@ impl App {
             widget_device: None,
             tiles_section: None,
             preset_arming: None,
+            share_dialog: None,
             picker_skins: false,
             confirm_delete_slot: None,
         };
@@ -1978,10 +1982,38 @@ impl App {
             },
             Message::UpdateLater => { self.update_available = None; self.update_status = String::new(); Task::none() }
             Message::ExportAppearance => {
-                self.appearance_status = "Copied to clipboard".into();
-                iced::clipboard::write(self.appearance_share_code())
+                // Open the dialog pre-filled with the current code (visible + copyable).
+                self.share_dialog = Some((true, self.appearance_share_code()));
+                self.appearance_status = String::new();
+                Task::none()
             }
-            Message::ImportAppearance => iced::clipboard::read().map(Message::ImportAppearanceCode),
+            Message::ImportAppearance => {
+                self.share_dialog = Some((false, String::new()));
+                self.appearance_status = String::new();
+                Task::none()
+            }
+            Message::ShareCodeInput(s) => {
+                if let Some((_, t)) = self.share_dialog.as_mut() { *t = s; }
+                Task::none()
+            }
+            Message::CopyShareCode => {
+                match self.share_dialog.as_ref() {
+                    Some((_, t)) => iced::clipboard::write(t.clone()),
+                    None => Task::none(),
+                }
+            }
+            Message::ApplyShareCode => {
+                if let Some((_, code)) = self.share_dialog.take() {
+                    if self.apply_share_code(&code) {
+                        return self.resize_widget();
+                    }
+                    // Invalid: reopen the dialog so the user can fix it.
+                    self.share_dialog = Some((false, code));
+                    self.appearance_status = "Invalid code".into();
+                }
+                Task::none()
+            }
+            Message::CloseShareDialog => { self.share_dialog = None; Task::none() }
             Message::ImportAppearanceCode(opt) => {
                 match opt {
                     Some(code) if self.apply_share_code(&code) => {
@@ -2132,7 +2164,7 @@ impl App {
                     status_kind: self.update_status_kind,
                     available: self.update_available.as_ref().map(|u| (u.version.clone(), u.changelog.clone())),
                 };
-                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)))
+                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)), self.share_dialog.clone())
             }
             WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
             WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),

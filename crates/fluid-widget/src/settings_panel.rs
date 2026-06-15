@@ -78,6 +78,7 @@ pub fn view<'a>(
     tiles_open: Option<String>,
     preset_arming: Option<u8>,
     undo_accent: Option<iced::Color>,
+    share_dialog: Option<(bool, String)>,
 ) -> Element<'a, Message> {
     // ── Style helpers ──
     let sh = |label: &str, tip: &'static str| -> Element<'a, Message> {
@@ -1154,14 +1155,83 @@ pub fn view<'a>(
 
     // Soft Premium window chrome: darker window bg, 20px corners, 1.5px
     // accent-tinted outline so dark-on-dark dialogs don't blend in.
-    container(column![caption, body])
+    let window = container(column![caption, body])
         .width(Length::Fill).height(Length::Fill)
         .style(move |_| iced::widget::container::Style {
             background: Some(iced::Background::Color(window_bg)),
             border: Border { radius: 20.0.into(), width: 1.5, color: accent_border },
             ..Default::default()
-        })
-        .into()
+        });
+
+    // Modal share-code dialog (Import/Export) overlaid on the settings window.
+    match share_dialog {
+        Some((is_export, code)) => {
+            stack![window, share_dialog_view(is_export, code, sunken, hairline, p)].into()
+        }
+        None => window.into(),
+    }
+}
+
+// Centered modal for importing/exporting the appearance share code, on a dimmed
+// backdrop. Export pre-fills the code (Copy button); Import starts empty (Apply).
+fn share_dialog_view<'a>(is_export: bool, code: String, card_bg: iced::Color, hairline: iced::Color, p: Palette) -> Element<'a, Message> {
+    let bg_opaque = iced::Color { a: 1.0, ..p.bg };
+    let title = if is_export { "Export appearance" } else { "Import appearance" };
+    let hint = if is_export {
+        "Copy this code and share it. Paste it into another Fluxid to apply your look."
+    } else {
+        "Paste an appearance share code, then Apply."
+    };
+    let field = text_input("paste code\u{2026}", &code)
+        .on_input(Message::ShareCodeInput)
+        .size(12)
+        .padding(8)
+        .style(move |_t, _s| iced::widget::text_input::Style {
+            background: iced::Background::Color(crate::style::field_bg(p)),
+            border: Border { radius: 6.0.into(), width: 1.0, color: iced::Color { a: 0.4, ..p.muted } },
+            icon: p.muted, placeholder: p.muted, value: p.text, selection: iced::Color { a: 0.3, ..p.accent },
+        });
+    let action: Element<'a, Message> = if is_export {
+        button(text("Copy").size(12).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(bg_opaque) }))
+            .padding([7, 16])
+            .style(move |_, _| button::Style { background: Some(iced::Background::Color(p.accent)), text_color: bg_opaque, border: Border { radius: 6.0.into(), ..Border::default() }, ..Default::default() })
+            .on_press(Message::CopyShareCode).into()
+    } else {
+        button(text("Apply").size(12).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(bg_opaque) }))
+            .padding([7, 16])
+            .style(move |_, _| button::Style { background: Some(iced::Background::Color(p.accent)), text_color: bg_opaque, border: Border { radius: 6.0.into(), ..Border::default() }, ..Default::default() })
+            .on_press(Message::ApplyShareCode).into()
+    };
+    let close = button(text("Close").size(12).style(move |_| iced::widget::text::Style { color: Some(p.text) }))
+        .padding([7, 14])
+        .style(move |_, _| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 6.0.into(), width: 1.0, color: iced::Color { a: 0.3, ..p.muted } }, ..Default::default() })
+        .on_press(Message::CloseShareDialog);
+    let card = container(column![
+        text(title).size(15).font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+        text(hint).size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
+        Space::with_height(4),
+        field,
+        Space::with_height(4),
+        row![Space::with_width(Length::Fill), close, Space::with_width(8), action].align_y(iced::Alignment::Center),
+    ].spacing(8))
+        .width(Length::Fixed(440.0))
+        .padding(18)
+        .style(move |_| iced::widget::container::Style {
+            background: Some(iced::Background::Color(iced::Color { a: 1.0, ..card_bg })),
+            border: Border { radius: 14.0.into(), width: 1.0, color: hairline },
+            ..Default::default()
+        });
+    let backdrop = mouse_area(
+        container(Space::new(Length::Fill, Length::Fill)).width(Length::Fill).height(Length::Fill)
+            .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(iced::Color { a: 0.55, ..iced::Color::BLACK })), ..Default::default() })
+    ).on_press(Message::CloseShareDialog);
+    stack![
+        backdrop,
+        container(card).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill),
+    ].into()
 }
 
 // C# value-label format "+0;-0;0": +N for positive, -N for negative, 0 for zero.
