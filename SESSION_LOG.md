@@ -100,9 +100,18 @@ process (widget lives on a 150%-scaled monitor).
 - [x] **Retro skin top bar** slimmed from `header_bar: 20.0` (≈30px @150%) to `6.0`.
 - [x] **Randomize now includes installed Theme Store themes** in the colour pool
   (uninstalling removes them from `installed_themes`, so they leave the pool too).
-- [~] **Live CPU clock (MHz)**: sysinfo returns the static base freq; fix in
-  progress — PDH `% Processor Performance × base` (matches Task Manager, shows
-  boost). Delegated to a focused sensor agent.
+- [x] **Live CPU clock (MHz)**: was sysinfo's static base freq; now PDH
+  `% Processor Performance × base` on Windows (matches Task Manager, shows boost).
+  Verified on-machine: 4698 MHz idle → 5045 MHz under load.
+- [x] **Network/Disk position sliders**: the old "spacing" sliders didn't fit the
+  centered layout. Reworked `centered_stat_line` to take a `left_inset` (clamped to
+  tile width) — the slider now slides R:/W: (and the ↓/↑ arrow) left/right while
+  the number stays centred and the unit hugs it with a small fixed gap. Renamed to
+  "R: / W: position" and "Arrow position".
+- [x] **Reclaimed 13.68 GB** by deleting `target/debug/incremental` (compiler
+  cache that ballooned from the session's rebuilds). Project 26.65 GB → 12.96 GB.
+  Root cause of the "massive folder": `target/` build artifacts (gitignored), not
+  the source.
 
 ### Findings deferred (real but higher-risk — left for a visually-verified pass)
 - Width jitter when a byte-rate or VRAM value crosses the 10.0 boundary

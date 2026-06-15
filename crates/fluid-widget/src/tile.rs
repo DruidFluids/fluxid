@@ -117,20 +117,23 @@ fn small_unit<'a>(t: String, accent: Color, s: &AppSettings) -> Element<'a, Mess
 }
 
 // One Network/Disk stat line: the NUMBER is pinned to the tile's centerline and
-// grows symmetrically as its digit count changes, with the arrow/label hugging it
-// on the left and the unit on the right. The trick: the two side cells are equal
+// grows symmetrically as its digit count changes. The two side cells are equal
 // `Length::Fill`, so they always split the leftover width evenly — keeping the
-// number dead-centre without measuring any text. `gap` is half the tile's spacing
-// setting, placed on each side so the centering stays symmetric.
+// number dead-centre without measuring any text. The unit hugs the number on the
+// right with a small fixed gap; the arrow/label sits on the left, nudged in from
+// the edge by `left_inset` (the per-tile position slider) so the user can slide
+// R:/W: (or the arrow) left or right without disturbing the centred number.
 // Number at PrimaryFontSize (18+primaryOffset); unit at UnitFontSize accent.
 fn centered_stat_line<'a>(
     left: Element<'a, Message>, v: String, u: String,
-    p: Palette, accent: Color, gap: f32, s: &AppSettings,
+    p: Palette, accent: Color, left_inset: f32, s: &AppSettings,
 ) -> Element<'a, Message> {
-    // Clamp the per-side gap so a large spacing-slider value (or an old saved one
-    // from the previous wider range) can never push number+unit past the tile's
-    // inner width and clip.
-    let gap = gap.clamp(0.0, 12.0);
+    // Clamp the inset to a fraction of the tile width so it can't shove the label
+    // into the centred number (or overflow) at extreme/old saved slider values.
+    let inset = left_inset.clamp(0.0, s.tile_width * s.ui_scale * 0.22);
+    // Small symmetric gap on each side of the number keeps it centred and the
+    // unit close, scaled with the UI so it tracks the font size.
+    let gap = 4.0 * s.ui_scale;
     let number = text(v).size(sz(18, s.primary_font_offset, s))
         .font(named_font(&s.primary_font, Weight::Bold))
         .wrapping(iced::widget::text::Wrapping::None)
@@ -140,9 +143,10 @@ fn centered_stat_line<'a>(
         .wrapping(iced::widget::text::Wrapping::None)
         .style(move |_| iced::widget::text::Style { color: Some(accent) });
     row![
-        // Label/arrow pinned to the tile's LEFT edge so it never moves; the
-        // number stays centred because both side cells are equal Fill.
-        container(left).width(Length::Fill).align_x(iced::alignment::Horizontal::Left),
+        // Left cell is Fill (so the number stays centred); the label/arrow is
+        // left-aligned within it and pushed right by `inset` — the position slider.
+        container(row![Space::with_width(inset), left].align_y(iced::Alignment::End))
+            .width(Length::Fill).align_x(iced::alignment::Horizontal::Left),
         Space::with_width(gap),
         number,
         Space::with_width(gap),
@@ -390,7 +394,7 @@ pub fn disk_tile<'a>(disk: &DiskData, s: &AppSettings, p: Palette, w: WarnView) 
             .wrapping(iced::widget::text::Wrapping::None)
             .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
             .into();
-        centered_stat_line(label, v, u, p, accent, spacing * 0.5, s)
+        centered_stat_line(label, v, u, p, accent, spacing, s)
     };
     let mut lines = column![].spacing(4);
     if s.disk_show_read { lines = lines.push(dline("R:", rv, ru)); }
@@ -489,9 +493,9 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
             .width(Length::Fixed(glow_w)).height(Length::Fixed(glow_w))
             .style(|_t, _s| iced::widget::svg::Style { color: None })
             .into();
-        // Center the number on the tile centerline; the arrow hugs it on the
-        // left and the unit on the right (see centered_stat_line).
-        centered_stat_line(arrow, v, u, p, accent, spacing * 0.5, s)
+        // Center the number on the tile centerline; the arrow sits on the left
+        // (nudged by the position slider) and the unit on the right.
+        centered_stat_line(arrow, v, u, p, accent, spacing, s)
     };
     let mut lines = column![].spacing(4);
     if s.net_show_down { lines = lines.push(nline(true, down > 0, down_color, dv, du)); }
