@@ -192,20 +192,29 @@ mod gui {
     use iced::widget::{
         button, checkbox, column, container, radio, row, scrollable, text, Space,
     };
-    use iced::{Element, Length, Task, Theme};
+    use iced::{Alignment, Element, Length, Task, Theme};
 
     pub fn run() -> iced::Result {
         let window = iced::window::Settings {
-            size: iced::Size::new(520.0, 460.0),
-            min_size: Some(iced::Size::new(460.0, 420.0)),
+            size: iced::Size::new(500.0, 500.0),
+            min_size: Some(iced::Size::new(470.0, 470.0)),
             icon: load_icon(),
             ..iced::window::Settings::default()
         };
-        iced::application("Fluxid Setup", Wizard::update, Wizard::view)
+        let mut app = iced::application("Fluxid Setup", Wizard::update, Wizard::view)
             .theme(Wizard::theme)
-            .window(window)
-            .run_with(Wizard::new)
+            .window(window);
+        // Segoe UI Symbol gives us the ✓ glyph (iced's default font lacks it),
+        // matching how the widget loads it for its monochrome icons.
+        #[cfg(target_os = "windows")]
+        if let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\seguisym.ttf") {
+            app = app.font(bytes);
+        }
+        app.run_with(Wizard::new)
     }
+
+    /// Font that carries the ✓ glyph used in the Done checklist.
+    const SYMBOL_FONT: iced::Font = iced::Font::with_name("Segoe UI Symbol");
 
     /// Decode the bundled Fluxid logo for the window / taskbar icon (same PNG
     /// the widget uses), so setup is visually branded as Fluxid.
@@ -256,14 +265,39 @@ mod gui {
 
     impl Wizard {
         fn new() -> (Self, Task<Message>) {
+            // Hidden `--page <welcome|options|installing|done>` to open the
+            // wizard on a given page (used for screenshots / visual QA).
+            let args: Vec<String> = std::env::args().collect();
+            let (page, outcome) = match crate::cli::value(&args, &["page"]) {
+                Some("options") => (Page::Options, None),
+                Some("installing") => (Page::Installing, None),
+                Some("done") => (
+                    Page::Done,
+                    Some(Outcome {
+                        ok: true,
+                        steps: vec![
+                            "Created C:\\Users\\you\\AppData\\Local\\Fluxid".into(),
+                            "Installed fluxid.exe".into(),
+                            "Installed uninstaller".into(),
+                            "Created Start Menu shortcut".into(),
+                            "Created desktop shortcut".into(),
+                            "Registered in Add/Remove Programs".into(),
+                            "Enabled start with Windows".into(),
+                            "Launched Fluxid".into(),
+                        ],
+                        error: None,
+                    }),
+                ),
+                _ => (Page::Welcome, None),
+            };
             (
                 Self {
-                    page: Page::Welcome,
+                    page,
                     scope: Scope::PerUser,
                     desktop: true,
                     startup: true,
                     launch: true,
-                    outcome: None,
+                    outcome,
                 },
                 Task::none(),
             )
@@ -319,53 +353,65 @@ mod gui {
         }
 
         fn view(&self) -> Element<'_, Message> {
-            let body: Element<'_, Message> = match self.page {
+            let step = match self.page {
+                Page::Welcome => 0,
+                Page::Options => 1,
+                Page::Installing => 2,
+                Page::Done => 3,
+            };
+            let (content, buttons) = match self.page {
                 Page::Welcome => self.welcome(),
                 Page::Options => self.options_page(),
                 Page::Installing => self.installing(),
                 Page::Done => self.done(),
             };
-            container(body)
-                .style(style::root)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .padding(28)
-                .into()
+            // The options page is content-dense — pin it to the top so nothing
+            // is clipped; the other (short) pages look best vertically centered.
+            let center = !matches!(self.page, Page::Options);
+            frame(step, content, buttons, center)
         }
 
-        fn welcome(&self) -> Element<'_, Message> {
-            let payload_note: Element<'_, Message> = if payload::is_bundled() {
+        fn welcome(&self) -> (Element<'_, Message>, Element<'_, Message>) {
+            let note: Element<'_, Message> = if payload::is_bundled() {
                 text(format!("Package size: {:.1} MB", payload::size_mb()))
                     .size(12)
                     .style(style::muted)
                     .into()
             } else {
-                text("⚠ Development build — no payload bundled; install is disabled.")
+                text("Development build — no payload bundled; install is disabled.")
                     .size(12)
                     .style(style::danger)
                     .into()
             };
-            column![
-                text("Welcome to Fluxid").size(26).style(style::title),
-                text(format!("Version {}", engine::VERSION))
+            let content = column![
+                style::badge(),
+                Space::with_height(12),
+                text("Fluxid").size(28).style(style::heading),
+                text(format!(
+                    "v{} — system monitor widget for Windows",
+                    engine::VERSION
+                ))
+                .size(14)
+                .style(style::body),
+                text("MIT license — free and open source")
                     .size(13)
                     .style(style::muted),
-                Space::with_height(8),
-                text("A lightweight system-monitor widget for your desktop.").size(14),
-                text("This will install Fluxid and create shortcuts.").size(14),
-                Space::with_height(12),
-                payload_note,
-                Space::with_height(Length::Fill),
-                row![
-                    Space::with_width(Length::Fill),
-                    primary_button("Next", payload::is_bundled().then_some(Message::Next)),
-                ],
+                Space::with_height(6),
+                note,
             ]
             .spacing(6)
-            .into()
+            .align_x(Alignment::Center);
+
+            let buttons = row![
+                secondary_button("Cancel", Some(Message::Finish)),
+                primary_button("Next  →", payload::is_bundled().then_some(Message::Next)),
+            ]
+            .spacing(12);
+
+            (content.into(), buttons.into())
         }
 
-        fn options_page(&self) -> Element<'_, Message> {
+        fn options_page(&self) -> (Element<'_, Message>, Element<'_, Message>) {
             let location: Element<'_, Message> = match engine::install_dir(self.scope) {
                 Ok(dir) => text(format!("Location: {}", dir.display()))
                     .size(12)
@@ -383,103 +429,154 @@ mod gui {
                 Space::with_height(0).into()
             };
 
-            let card = container(
-                column![
-                    text("Install for").size(15).style(style::body),
-                    radio(
-                        "Just me  (no admin required)",
-                        Scope::PerUser,
-                        Some(self.scope),
-                        Message::SetScope,
-                    ),
-                    radio(
-                        "All users  (requires administrator)",
-                        Scope::AllUsers,
-                        Some(self.scope),
-                        Message::SetScope,
-                    ),
-                    location,
-                    elevation_note,
-                    Space::with_height(6),
-                    text("Options").size(15).style(style::body),
-                    checkbox("Create a desktop shortcut", self.desktop)
-                        .on_toggle(Message::ToggleDesktop),
-                    checkbox("Start Fluxid when Windows starts", self.startup)
-                        .on_toggle(Message::ToggleStartup),
-                    checkbox("Launch Fluxid when setup finishes", self.launch)
-                        .on_toggle(Message::ToggleLaunch),
-                ]
-                .spacing(8),
-            )
-            .style(style::card)
-            .padding(18)
-            .width(Length::Fill);
-
-            column![
-                text("Setup options").size(22).style(style::title),
-                Space::with_height(10),
-                card,
-                Space::with_height(8),
-                text("CPU temperature and remote monitoring can be enabled later in Fluxid's settings.")
-                    .size(11)
-                    .style(style::muted),
-                Space::with_height(Length::Fill),
-                row![
-                    secondary_button("Back", Some(Message::Back)),
-                    Space::with_width(Length::Fill),
-                    primary_button("Install", Some(Message::StartInstall)),
-                ],
+            let content = column![
+                text("Setup options").size(22).style(style::heading),
+                Space::with_height(6),
+                text("Install for").size(14).style(style::muted),
+                radio(
+                    "Just me  (no admin required)",
+                    Scope::PerUser,
+                    Some(self.scope),
+                    Message::SetScope,
+                ),
+                radio(
+                    "All users  (requires administrator)",
+                    Scope::AllUsers,
+                    Some(self.scope),
+                    Message::SetScope,
+                ),
+                location,
+                elevation_note,
+                Space::with_height(6),
+                text("Options").size(14).style(style::muted),
+                checkbox("Create a desktop shortcut", self.desktop)
+                    .on_toggle(Message::ToggleDesktop),
+                checkbox("Start Fluxid when Windows starts", self.startup)
+                    .on_toggle(Message::ToggleStartup),
+                checkbox("Launch Fluxid when setup finishes", self.launch)
+                    .on_toggle(Message::ToggleLaunch),
             ]
-            .spacing(4)
-            .into()
+            .spacing(9)
+            .width(Length::Fixed(380.0));
+
+            let buttons = row![
+                secondary_button("←  Back", Some(Message::Back)),
+                primary_button("Install", Some(Message::StartInstall)),
+            ]
+            .spacing(12);
+
+            (content.into(), buttons.into())
         }
 
-        fn installing(&self) -> Element<'_, Message> {
-            column![
-                text("Installing…").size(22).style(style::title),
-                Space::with_height(12),
+        fn installing(&self) -> (Element<'_, Message>, Element<'_, Message>) {
+            let content = column![
+                style::badge(),
+                Space::with_height(14),
+                text("Installing…").size(22).style(style::heading),
                 text("Setting up Fluxid. This only takes a moment.")
                     .size(14)
                     .style(style::muted),
             ]
             .spacing(6)
-            .into()
+            .align_x(Alignment::Center);
+
+            (content.into(), Space::with_height(0).into())
         }
 
-        fn done(&self) -> Element<'_, Message> {
-            let (heading, detail): (&str, Element<'_, Message>) = match &self.outcome {
+        fn done(&self) -> (Element<'_, Message>, Element<'_, Message>) {
+            let content: Element<'_, Message> = match &self.outcome {
                 Some(o) if o.ok => {
-                    let steps = o.steps.iter().fold(column![].spacing(4), |c, s| {
-                        c.push(text(format!("✓  {s}")).size(13).style(style::body))
+                    let steps = o.steps.iter().fold(column![].spacing(7), |c, s| {
+                        c.push(
+                            row![
+                                text("✓")
+                                    .font(SYMBOL_FONT)
+                                    .size(14)
+                                    .style(style::accent_text),
+                                text(s).size(13).style(style::body),
+                            ]
+                            .spacing(10)
+                            .align_y(Alignment::Center),
+                        )
                     });
-                    ("Setup complete", scrollable(steps).height(Length::Fill).into())
+                    column![
+                        text("Setup complete").size(22).style(style::heading),
+                        Space::with_height(14),
+                        container(scrollable(steps)).width(Length::Fixed(330.0)),
+                    ]
+                    .spacing(4)
+                    .align_x(Alignment::Center)
+                    .into()
                 }
-                Some(o) => (
-                    "Setup failed",
+                Some(o) => column![
+                    text("Setup failed").size(22).style(style::heading),
+                    Space::with_height(12),
                     text(o.error.clone().unwrap_or_else(|| "Unknown error.".into()))
                         .size(14)
-                        .style(style::danger)
-                        .into(),
-                ),
-                None => ("Done", Space::with_height(0).into()),
+                        .style(style::danger),
+                ]
+                .spacing(4)
+                .align_x(Alignment::Center)
+                .into(),
+                None => Space::with_height(0).into(),
             };
-            column![
-                text(heading).size(22).style(style::title),
-                Space::with_height(12),
-                detail,
-                Space::with_height(Length::Fill),
-                row![
-                    Space::with_width(Length::Fill),
-                    primary_button("Close", Some(Message::Finish)),
-                ],
-            ]
-            .spacing(6)
-            .into()
+
+            let buttons = row![primary_button("Close", Some(Message::Finish))];
+
+            (content, buttons.into())
         }
 
         fn theme(&self) -> Theme {
             style::theme()
         }
+    }
+
+    /// Assemble a page: step indicator on top, centered content, divider, then a
+    /// centered button row — the consistent wizard frame.
+    fn frame<'a>(
+        step: usize,
+        content: Element<'a, Message>,
+        buttons: Element<'a, Message>,
+        center: bool,
+    ) -> Element<'a, Message> {
+        let area = container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill);
+        let area = if center {
+            area.center_y(Length::Fill)
+        } else {
+            area.align_y(iced::alignment::Vertical::Top)
+        };
+        container(
+            column![
+                step_bar(step),
+                area,
+                container(text("")).width(Length::Fill).height(Length::Fixed(1.0)).style(style::divider),
+                container(buttons).width(Length::Fill).center_x(Length::Fill),
+            ]
+            .spacing(18),
+        )
+        .style(style::root)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(26)
+        .into()
+    }
+
+    /// The row of step segments across the top (current + past are accent).
+    fn step_bar(step: usize) -> Element<'static, Message> {
+        const TOTAL: usize = 4;
+        let mut bar = row![].spacing(8);
+        for i in 0..TOTAL {
+            bar = bar.push(
+                container(text(""))
+                    .width(Length::Fixed(34.0))
+                    .height(Length::Fixed(5.0))
+                    .style(style::segment(i <= step)),
+            );
+        }
+        container(bar).width(Length::Fill).center_x(Length::Fill).into()
     }
 
     fn primary_button(label: &str, msg: Option<Message>) -> Element<'_, Message> {

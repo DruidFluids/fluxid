@@ -236,5 +236,26 @@ one exe, make shortcuts, register the uninstaller, apply opt-ins, launch.
   skipped, startup on, fluxid not launched; silent uninstall full cleanup;
   `--help` + `/?` print correctly; themed GUI launches without crashing.
 
+### Round 3 — redesigned wizard to a centered, modern layout (screenshot-verified)
+Reworked the wizard look to match a reference the user liked (the old C# setup):
+step indicator on top → centered content → divider → centered button pair.
+- `style.rs`: accent **icon badge** drawn with canvas (accent circle + white ECG
+  pulse), outlined `secondary`/accent `primary` buttons, `segment`/`divider`
+  container styles, white `heading`, `accent_text`. Window 500×500, logo icon.
+- `main.rs`: `frame(step, content, buttons, center)` assembles every page;
+  `step_bar` (4 accent segments). Pages return `(content, buttons)`. Welcome =
+  badge + "Fluxid" + version + MIT line; Options; Installing; Done = ✓ checklist.
+- Hidden `--page welcome|options|installing|done` to open the wizard on a page
+  (QA/screenshots); Done injects a sample outcome.
+- **Captured all 4 pages via DPI-aware PrintWindow(PW_RENDERFULLCONTENT)** and
+  fixed two bugs found:
+  1. Options page clipped the 3rd checkbox — content was vertically centered but
+     taller than the area. Fix: top-align the Options page (others stay
+     centered) + taller window.
+  2. Done ✓ rendered as tofu — iced's default font lacks U+2713. Fix: load
+     `C:\Windows\Fonts\seguisym.ttf` (like the widget) and render the check in
+     `Segoe UI Symbol` + accent color, label in default font.
+  Re-captured: all four pages correct.
+
 ### Known Issues / TODO
 - (to be filled as found)
