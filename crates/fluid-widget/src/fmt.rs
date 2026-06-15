@@ -35,18 +35,22 @@ pub fn shorten(name: &str) -> String {
 }
 
 /// (value, unit) pairs so tiles can render the unit in accent color.
+/// Keep the readout to at most 3 significant chars so the unit never gets
+/// squeezed onto a second line: one decimal only for single-digit values
+/// ("9.9"), no decimal once we hit two digits ("25", "752").
+fn short(v: f64) -> String {
+    if v >= 10.0 { format!("{:.0}", v) } else { format!("{:.1}", v) }
+}
+
 pub fn fmt_net(bps: f64) -> (String, String) {
-    // Drop the decimal once the value reaches 3 digits so wide rates like
-    // "751.8" become "752" and the unit never gets squeezed onto a second line.
-    let fmt = |v: f64| -> String { if v >= 100.0 { format!("{:.0}", v) } else { format!("{:.1}", v) } };
     if bps < 1024.0 {
         (format!("{:.0}", bps), "B/s".into())
     } else if bps < 1024.0 * 1024.0 {
-        (fmt(bps / 1024.0), "KB/s".into())
+        (short(bps / 1024.0), "KB/s".into())
     } else if bps < 1024.0 * 1024.0 * 1024.0 {
-        (fmt(bps / 1024.0 / 1024.0), "MB/s".into())
+        (short(bps / 1024.0 / 1024.0), "MB/s".into())
     } else {
-        (fmt(bps / 1024.0 / 1024.0 / 1024.0), "GB/s".into())
+        (short(bps / 1024.0 / 1024.0 / 1024.0), "GB/s".into())
     }
 }
 
@@ -54,11 +58,11 @@ pub fn fmt_disk(bps: f64) -> (String, String) {
     if bps < 1024.0 {
         (format!("{:.0}", bps), "B/s".into())
     } else if bps < 1024.0 * 1024.0 {
-        (format!("{:.0}", bps / 1024.0), "KB/s".into())
+        (short(bps / 1024.0), "KB/s".into())
     } else if bps < 1024.0 * 1024.0 * 1024.0 {
-        (format!("{:.1}", bps / 1024.0 / 1024.0), "MB/s".into())
+        (short(bps / 1024.0 / 1024.0), "MB/s".into())
     } else {
-        (format!("{:.1}", bps / 1024.0 / 1024.0 / 1024.0), "GB/s".into())
+        (short(bps / 1024.0 / 1024.0 / 1024.0), "GB/s".into())
     }
 }
 

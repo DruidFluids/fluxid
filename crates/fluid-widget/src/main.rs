@@ -326,7 +326,7 @@ enum WindowKind { Widget, Settings, Alerts, GameMode, Help, WidgetMenu, Popout, 
 // (Appearance: colors + size + fonts) so nothing is clipped; shorter tabs
 // simply have empty space below. The hidden scrollbar catches any slight
 // overflow without ever showing a bar.
-const SETTINGS_FIXED_SIZE: Size = Size::new(600.0, 720.0);
+const SETTINGS_FIXED_SIZE: Size = Size::new(600.0, 788.0);
 fn settings_size_for_tab(_tab: usize) -> Size {
     SETTINGS_FIXED_SIZE
 }

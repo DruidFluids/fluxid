@@ -603,12 +603,12 @@ pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: 
 
     let disclaimer = container(
         text("Disclaimer: Third-party tools linked here are not bundled with, vetted by, or endorsed by Fluxid. Fluxid only opens their official website \u{2014} review anything you download or run yourself. Use at your own risk.".to_string())
-            .size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) })
+            .size(10).style(move |_| iced::widget::text::Style { color: Some(Color::from_rgb(1.0, 0.90, 0.84)) })
     )
     .width(Length::Fill).padding(iced::Padding { top: 8.0, right: 10.0, bottom: 8.0, left: 10.0 })
     .style(move |_| iced::widget::container::Style {
-        background: Some(iced::Background::Color(Color::from_rgba8(0xFF, 0x66, 0x00, 0.19))),
-        border: Border { radius: 6.0.into(), ..Border::default() },
+        background: Some(iced::Background::Color(Color::from_rgba8(0xC0, 0x40, 0x18, 0.28))),
+        border: Border { radius: 6.0.into(), width: 1.0, color: Color::from_rgba8(0xE0, 0x6A, 0x40, 0.55) },
         ..Default::default()
     });
 

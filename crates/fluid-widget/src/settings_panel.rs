@@ -483,6 +483,9 @@ pub fn view<'a>(
     tcol = tcol.push(Space::with_height(6));
     tcol = tcol.push(sh("Layout", "Stack tiles vertically (tall) or horizontally (wide)."));
     tcol = tcol.push(layout_pills);
+    tcol = tcol.push(Space::with_height(10));
+    tcol = tcol.push(sh("Behavior", "How the widget behaves on your desktop."));
+    tcol = tcol.push(behavior);
     let tiles_tab: Element<'a, Message> = tcol.into();
 
     // ════════════════════════════════════════════════════════════
@@ -817,14 +820,22 @@ pub fn view<'a>(
     };
 
     let remote_header = row![
+        container(
+            text("\u{1F4E1}").size(18).font(iced::Font::with_name("Segoe UI Symbol"))
+                .style(move |_| iced::widget::text::Style { color: Some(p.accent) })
+        ).width(34).height(34).center_x(34).center_y(34)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(iced::Background::Color(iced::Color { a: 0.14, ..p.accent })),
+                border: Border { radius: 8.0.into(), ..Border::default() },
+                ..Default::default()
+            }),
+        Space::with_width(10),
         sh("Remote Monitoring", "Share this machine's sensor data over your local network. Others connect using the key below."),
-        Space::with_width(8),
-        toggler(remote.expanded).size(14).on_toggle(Message::ToggleRemoteSection).style(crate::style::toggler_style(p)),
     ].align_y(iced::Alignment::Center);
 
     let mut remote_col = column![remote_header].spacing(6);
 
-    if remote.expanded {
+    {
         // Host: TCP feed + handshake key
         let feed_toggle = row![
             toggler(remote.feed_on).size(14).on_toggle(Message::SetTcpFeedEnabled).style(crate::style::toggler_style(p)),
@@ -1023,10 +1034,6 @@ pub fn view<'a>(
         sh("Font", "Pick fonts for Primary numbers, Secondary labels, and Indicators (units). Toggle 'Sync' to lock all three together. Sizes nudge the chosen font up or down."), fonts,
     ].spacing(4).into();
 
-    let behavior_tab: Element<'a, Message> = column![
-        sh("Behavior", "Control how the widget behaves on your desktop."), behavior,
-    ].spacing(4).into();
-
     // CPU sensor driver (PawnIO) management — status + install/manage button.
     let driver_status_chip = container(
         text(status_label).size(11)
@@ -1054,8 +1061,6 @@ pub fn view<'a>(
     let sensors_tab: Element<'a, Message> = column![
         sh("CPU Sensor Driver", "Optional signed driver (PawnIO) for accurate CPU temperature."), cpu_driver,
     ].spacing(4).into();
-
-    let remote_tab: Element<'a, Message> = column![remote].spacing(4).into();
 
     // ── Tools tab: launchers that used to live behind the bottom-left gear ──
     let tool_item = |icon: &str, icon_color: iced::Color, title: &str, subtitle: &str, msg: Message| -> Element<'a, Message> {
@@ -1098,6 +1103,8 @@ pub fn view<'a>(
         tool_item("\u{1F3AE}", iced::Color::from_rgb8(0x6A, 0x9F, 0xD8), "Game Mode", "Hotkey-snap a compact overlay", Message::OpenGameMode),
         tool_item("\u{1F527}", iced::Color::from_rgb8(0x88, 0xAA, 0x55), "Utilities", "System tools & snap blocklist", Message::OpenUtilities),
         Space::with_height(8),
+        remote,
+        Space::with_height(8),
         sh("Updates", "Check for and install new versions of Fluxid."),
         updates,
     ].spacing(8).into();
@@ -1106,8 +1113,8 @@ pub fn view<'a>(
     //  ASSEMBLY  (tabbed)
     // ════════════════════════════════════════════
 
-    let tab_labels = ["Tiles", "Appearance", "Behavior", "Sensors", "Tools", "Remote"];
-    let mut tab_panes = vec![tiles_tab, appearance_tab, behavior_tab, sensors_tab, tools_tab, remote_tab];
+    let tab_labels = ["Tiles", "Appearance", "Sensors", "Tools"];
+    let mut tab_panes = vec![tiles_tab, appearance_tab, sensors_tab, tools_tab];
     let active = tab.min(tab_panes.len() - 1);
 
     // ── Soft Premium chrome colours (derived from the live palette) ──
