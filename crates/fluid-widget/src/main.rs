@@ -367,10 +367,7 @@ enum WindowKind { Widget, Settings, Alerts, GameMode, Help, WidgetMenu, Popout, 
 // (Appearance: colors + size + fonts) so nothing is clipped; shorter tabs
 // simply have empty space below. The hidden scrollbar catches any slight
 // overflow without ever showing a bar.
-const SETTINGS_FIXED_SIZE: Size = Size::new(600.0, 788.0);
-fn settings_size_for_tab(_tab: usize) -> Size {
-    SETTINGS_FIXED_SIZE
-}
+const SETTINGS_WIDTH: f32 = 600.0;
 
 // Keep secondary windows (settings, popups, menus) off the taskbar so only the
 // widget shows a single entry.
@@ -734,6 +731,29 @@ impl App {
         (app, task)
     }
 
+    // Size the settings window to the current tab's content so there's no big
+    // empty void below it. The Tiles tab grows when a tile's options expand or
+    // when edge-snap adds its sub-controls.
+    fn settings_size(&self) -> Size {
+        let h = match self.settings_tab {
+            1 => 788.0, // Appearance (densest tab)
+            2 => 524.0, // Tools
+            _ => {
+                // Tiles: base list + Layout + Behavior, plus dynamic extras.
+                let mut h: f32 = if self.settings.snap_to_edges { 690.0 } else { 628.0 };
+                h += match self.tiles_section.as_deref() {
+                    Some("CPU") => 150.0,
+                    Some("GPU") => 78.0,
+                    Some("Network") | Some("Disk") => 92.0,
+                    Some("RAM") | Some("Clock") => 30.0,
+                    _ => 0.0,
+                };
+                h.min(836.0)
+            }
+        };
+        Size::new(SETTINGS_WIDTH, h)
+    }
+
     fn effective_orientation(&self) -> Orientation {
         if self.game_mode {
             match self.settings.game_mode_orientation.as_str() {
@@ -800,7 +820,7 @@ impl App {
         if self.settings_window().is_some() { return Task::none(); }
         // Always open centered on the active monitor.
         let (_, t) = window::open(window::Settings {
-            size: settings_size_for_tab(self.settings_tab), position: window::Position::Centered, decorations: false, transparent: true, resizable: false,
+            size: self.settings_size(), position: window::Position::Centered, decorations: false, transparent: true, resizable: false,
             level: window::Level::AlwaysOnTop, platform_specific: no_taskbar(), ..Default::default()
         });
         t.map(|id| Message::WindowOpened(id, WindowKind::Settings))
@@ -1305,7 +1325,8 @@ impl App {
             }
             Message::ToggleTileSection(name) => {
                 self.tiles_section = if self.tiles_section.as_deref() == Some(name.as_str()) { None } else { Some(name) };
-                Task::none()
+                // Grow/shrink the window to fit the expanded tile's options.
+                self.settings_window().map(|id| window::resize(id, self.settings_size())).unwrap_or(Task::none())
             }
             Message::SetTileField(key, on) => {
                 let st = &mut self.settings;
@@ -1550,7 +1571,8 @@ impl App {
                 // sub-option that only appears while edge-snap is on).
                 if on { self.settings.snap_to_windows = true; }
                 else { self.snap_right = false; self.snap_bottom = false; }
-                Task::none()
+                // The Behavior section grows/shrinks with the snap sub-controls.
+                self.settings_window().map(|id| window::resize(id, self.settings_size())).unwrap_or(Task::none())
             }
             // (theme accent edited via the colour swatches / hex editor)
             Message::ThemePrev => {
@@ -1632,7 +1654,7 @@ impl App {
             Message::SetDiskLabelFontOffset(v) => { self.settings.disk_label_font_offset = v as i32; Task::none() }
             Message::SetSettingsTab(i) => {
                 self.settings_tab = i;
-                self.settings_window().map(|id| window::resize(id, settings_size_for_tab(i))).unwrap_or(Task::none())
+                self.settings_window().map(|id| window::resize(id, self.settings_size())).unwrap_or(Task::none())
             }
             Message::ArmHotkey(target) => {
                 // Toggle capture: clicking the armed field again disarms it.

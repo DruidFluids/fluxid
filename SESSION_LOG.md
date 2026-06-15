@@ -337,5 +337,23 @@ no matter what — the rounded look was the *tiles*), switched to OS-level round
   `big()` primary). Verified in horizontal: all six tiles' primary values and
   secondary first-lines line up across the row.
 
+### Round 8 — Settings UI polish (clean & roomy)
+User: the Settings UI looked weird. Chosen direction (via question previews):
+clean & roomy, simple list + dividers, "Shown/Hidden" chip toggle.
+- **Tiles tab rows redesigned**: each tile is a clean list row — label (expand
+  click-target) on the left, an accent **Shown** / muted **Hidden** chip that
+  toggles visibility on the right, a ▸/▾ chevron expander, thin dividers between
+  rows, roomier padding. Replaces the old left-edge switch + stranded far-right
+  chevron.
+- **Empty void fixed**: `settings_size_for_tab` was a constant 600×788 for every
+  tab, so the short Tiles tab left a big gap above the footer (content lives in a
+  height(Fill) scrollable). New `settings_size(&self)` sizes the window to the
+  current tab (Tiles base 628/690 by snap state, Appearance 788, Tools 524) and
+  grows it when a tile's options expand (resize wired into ToggleTileSection,
+  SetSnap, SetSettingsTab, and window open).
+- **Clock moved to the top of the Tiles list** (matches the on-screen tile order
+  — Clock renders first). Reordered the `names`/`internals` arrays and the
+  matching `bodies` array together.
+
 ### Known Issues / TODO
 - (to be filled as found)

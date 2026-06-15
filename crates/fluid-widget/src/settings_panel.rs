@@ -403,8 +403,9 @@ pub fn view<'a>(
             text(label.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
         ].spacing(6).align_y(iced::Alignment::Center).into()
     };
-    let names = ["CPU", "GPU", "RAM", "Network", "Disk", "Clock"];
-    let internals = ["CPU", "GPU", "RAM", "Network", "Disk", "Clock"];
+    // Clock first to match the on-screen tile order (Clock renders at the top).
+    let names = ["Clock", "CPU", "GPU", "RAM", "Network", "Disk"];
+    let internals = ["Clock", "CPU", "GPU", "RAM", "Network", "Disk"];
     let open_is = |n: &str| tiles_open.as_deref() == Some(n);
 
     // Optional CPU sensor driver (PawnIO) — lives inside the CPU tile section.
@@ -469,50 +470,92 @@ pub fn view<'a>(
         disk,
     ].spacing(6).into();
     let clock_body: Element<'a, Message> = row![field_tog("Date", settings.clock_show_date, "clock_date")].into();
-    let mut bodies = [Some(cpu_body), Some(gpu_body), Some(ram_body), Some(net_body), Some(disk_body), Some(clock_body)];
+    let mut bodies = [Some(clock_body), Some(cpu_body), Some(gpu_body), Some(ram_body), Some(net_body), Some(disk_body)];
 
-    let mut tcol = column![].spacing(3);
+    // A small "Shown / Hidden" chip that toggles the tile's visibility (right
+    // side of each list row) — replaces the old left-edge switch.
+    let vis_chip = |shown: bool, internal: String| -> Element<'a, Message> {
+        let (label, col) = if shown { ("Shown", p.accent) } else { ("Hidden", p.muted) };
+        button(text(label).size(10).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(col) }))
+            .padding(iced::Padding { top: 3.0, right: 10.0, bottom: 3.0, left: 10.0 })
+            .style(move |_: &iced::Theme, status: button::Status| {
+                let a = if matches!(status, button::Status::Hovered) { 0.30 } else { 0.16 };
+                button::Style {
+                    background: Some(iced::Background::Color(iced::Color { a, ..col })),
+                    border: Border { radius: 10.0.into(), ..Border::default() },
+                    text_color: col,
+                    ..Default::default()
+                }
+            })
+            .on_press(Message::ToggleTile(internal, !shown))
+            .into()
+    };
+    // Thin divider between list rows.
+    let row_divider = move || -> Element<'a, Message> {
+        container(Space::with_height(Length::Fixed(1.0)))
+            .width(Length::Fill)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(iced::Background::Color(iced::Color { a: 0.10, ..p.muted })),
+                ..Default::default()
+            })
+            .into()
+    };
+
+    let mut tcol = column![].spacing(0);
+    let last = names.len() - 1;
     for (i, (disp, intern)) in names.iter().zip(internals.iter()).enumerate() {
         let open = open_is(disp);
         let vis = settings.visible_tiles.iter().any(|v| v == intern);
         let internal = intern.to_string();
         let nm = disp.to_string();
+        let nm2 = disp.to_string();
         let chev = if open { "\u{25BE}" } else { "\u{25B8}" };
-        let header = row![
-            toggler(vis).size(14).on_toggle(move |on| Message::ToggleTile(internal.clone(), on)).style(crate::style::toggler_style(p)),
-            Space::with_width(6),
-            crate::style::with_tip(button(row![
-                text(disp.to_string()).size(12).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-                    .style(move |_| iced::widget::text::Style { color: Some(if open { p.accent } else { p.text }) }),
+        let lblcol = if open { p.accent } else { p.text };
+        // The label fills the row width and is the expand click-target.
+        let expand = button(
+            row![
+                text(disp.to_string()).size(13).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                    .style(move |_| iced::widget::text::Style { color: Some(lblcol) }),
                 Space::with_width(Length::Fill),
-                text(chev.to_string()).size(10).font(crate::style::ICONS)
-                    .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
-            ].align_y(iced::Alignment::Center))
-            .width(Length::Fill).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 6.0 })
-            .style(move |_: &iced::Theme, status: button::Status| {
-                let hover = matches!(status, button::Status::Hovered);
-                button::Style {
-                    background: Some(iced::Background::Color(if hover || open { iced::Color { a: p.tile.a * 0.6, ..p.tile } } else { iced::Color::TRANSPARENT })),
-                    border: Border { radius: 5.0.into(), ..Border::default() },
-                    ..Default::default()
-                }
-            })
-            .on_press(Message::ToggleTileSection(nm.clone())),
-                &format!("Expand the {disp} tile's options"), p),
+            ].align_y(iced::Alignment::Center)
+        )
+        .width(Length::Fill)
+        .padding(iced::Padding { top: 10.0, right: 4.0, bottom: 10.0, left: 8.0 })
+        .style(move |_: &iced::Theme, status: button::Status| {
+            let hover = matches!(status, button::Status::Hovered);
+            button::Style {
+                background: Some(iced::Background::Color(if hover { iced::Color { a: p.tile.a * 0.5, ..p.tile } } else { iced::Color::TRANSPARENT })),
+                border: Border { radius: 6.0.into(), ..Border::default() },
+                ..Default::default()
+            }
+        })
+        .on_press(Message::ToggleTileSection(nm.clone()));
+        let chev_btn = button(text(chev.to_string()).size(11).font(crate::style::ICONS)
+            .style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
+            .padding(iced::Padding { top: 6.0, right: 6.0, bottom: 6.0, left: 6.0 })
+            .style(|_: &iced::Theme, _: button::Status| button::Style { background: None, ..Default::default() })
+            .on_press(Message::ToggleTileSection(nm2.clone()));
+        let header = row![
+            expand,
+            crate::style::with_tip(vis_chip(vis, internal), if vis { "Hide this tile" } else { "Show this tile" }, p),
+            Space::with_width(2),
+            chev_btn,
         ].align_y(iced::Alignment::Center);
         tcol = tcol.push(header);
         let body = bodies[i].take().unwrap();
         if open {
             tcol = tcol.push(
                 container(body).width(Length::Fill)
-                    .padding(iced::Padding { top: 4.0, right: 2.0, bottom: 8.0, left: 24.0 })
+                    .padding(iced::Padding { top: 2.0, right: 4.0, bottom: 12.0, left: 16.0 })
             );
         }
+        if i != last { tcol = tcol.push(row_divider()); }
     }
-    tcol = tcol.push(Space::with_height(6));
+    tcol = tcol.push(Space::with_height(14));
     tcol = tcol.push(sh("Layout", "Stack tiles vertically (tall) or horizontally (wide)."));
     tcol = tcol.push(layout_pills);
-    tcol = tcol.push(Space::with_height(10));
+    tcol = tcol.push(Space::with_height(14));
     tcol = tcol.push(sh("Behavior", "How the widget behaves on your desktop."));
     tcol = tcol.push(behavior);
     let tiles_tab: Element<'a, Message> = tcol.into();
