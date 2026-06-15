@@ -488,13 +488,21 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-// An in-progress drag-reorder of a tile row in Settings.
+// An in-progress drag-reorder of a tile row in Settings — the row "lifts out"
+// and floats under the cursor while the list opens a spring-animated gap.
 #[derive(Clone)]
 struct TileDrag {
-    name: String,        // the tile being dragged
-    origin_index: usize, // its index in tile_order when the drag began
+    name: String,         // the tile being dragged
+    origin_index: usize,  // its index in tile_order when the drag began
     start_y: Option<f32>, // cursor y at the first move (window-relative, logical)
+    cursor_y: f32,        // current cursor y (window-relative, logical)
+    gap_anim: f32,        // animated gap position (float slot), springs toward target
+    gap_vel: f32,         // spring velocity (for the squishy overshoot)
 }
+
+// Logical height of one tile row — gap size, floating-row size, and the
+// cursor-delta → slot math all key off this.
+const TILE_ROW_H: f32 = 38.0;
 
 struct App {
     settings: AppSettings,
@@ -658,7 +666,7 @@ enum Message {
     OpenCpuDriver, DismissCpuTempHint,
     SwitchWidgetDevice(Option<String>), SetShowRemoteStatusDot(bool),
     ToggleTileSection(String), SetTileField(String, bool),
-    StartTileDrag(String), TileDragMove(f32), TileDragEnd,
+    StartTileDrag(String), TileDragMove(f32), TileDragEnd, DragAnimTick,
     CpuDriverMoreInfo, CpuDriverBack,
     CpuDriverInstall, CpuDriverUninstall,
     CpuDriverInstallDone(cpu_driver::Outcome),
@@ -825,6 +833,22 @@ impl App {
     }
     fn settings_window(&self) -> Option<window::Id> {
         self.windows.iter().find(|(_, k)| **k == WindowKind::Settings).map(|(id, _)| *id)
+    }
+    // The slot the dragged tile would drop into, from how far the cursor has moved.
+    fn tile_drag_target(&self) -> usize {
+        match &self.tile_drag {
+            Some(d) => {
+                let n = self.settings.tile_order.len().max(1);
+                match d.start_y {
+                    Some(sy) => {
+                        let moved = ((d.cursor_y - sy) / TILE_ROW_H).round() as i64;
+                        (d.origin_index as i64 + moved).clamp(0, n as i64 - 1) as usize
+                    }
+                    None => d.origin_index,
+                }
+            }
+            None => 0,
+        }
     }
     fn open_settings(&mut self) -> Task<Message> {
         if self.settings_window().is_some() { return Task::none(); }
@@ -1340,35 +1364,58 @@ impl App {
             }
             Message::StartTileDrag(name) => {
                 let origin_index = self.settings.tile_order.iter().position(|t| t == &name).unwrap_or(0);
-                self.tile_drag = Some(TileDrag { name, origin_index, start_y: None });
+                self.tile_drag = Some(TileDrag {
+                    name,
+                    origin_index,
+                    start_y: None,
+                    cursor_y: 0.0,
+                    gap_anim: origin_index as f32,
+                    gap_vel: 0.0,
+                });
                 // Collapse any open accordion so the list height is stable while dragging.
                 self.tiles_section = None;
                 Task::none()
             }
             Message::TileDragMove(y) => {
                 if let Some(drag) = self.tile_drag.as_mut() {
-                    match drag.start_y {
-                        None => drag.start_y = Some(y),
-                        Some(sy) => {
-                            // Each tile row is ~ROW_H logical px tall.
-                            const ROW_H: f32 = 37.0;
-                            let n = self.settings.tile_order.len();
-                            let moved = ((y - sy) / ROW_H).round() as i64;
-                            let target = (drag.origin_index as i64 + moved).clamp(0, n as i64 - 1) as usize;
-                            let name = drag.name.clone();
-                            if let Some(cur) = self.settings.tile_order.iter().position(|t| t == &name) {
-                                if cur != target {
-                                    let item = self.settings.tile_order.remove(cur);
-                                    self.settings.tile_order.insert(target, item);
-                                }
-                            }
-                        }
+                    drag.cursor_y = y;
+                    if drag.start_y.is_none() {
+                        drag.start_y = Some(y);
                     }
                 }
                 Task::none()
             }
+            Message::DragAnimTick => {
+                // Spring the gap toward the slot the cursor is over — squishy overshoot.
+                let target = self.tile_drag_target() as f32;
+                if let Some(drag) = self.tile_drag.as_mut() {
+                    let k = 0.30; // stiffness
+                    let damp = 0.62; // 1 - damping
+                    drag.gap_vel += (target - drag.gap_anim) * k;
+                    drag.gap_vel *= damp;
+                    drag.gap_anim += drag.gap_vel;
+                }
+                Task::none()
+            }
             Message::TileDragEnd => {
-                if self.tile_drag.take().is_some() {
+                if let Some(drag) = self.tile_drag.take() {
+                    // Commit the move: lift the dragged tile out and drop it at the target slot.
+                    let target = {
+                        let n = self.settings.tile_order.len();
+                        match drag.start_y {
+                            Some(sy) => {
+                                let moved = ((drag.cursor_y - sy) / TILE_ROW_H).round() as i64;
+                                (drag.origin_index as i64 + moved).clamp(0, n as i64 - 1) as usize
+                            }
+                            None => drag.origin_index,
+                        }
+                    };
+                    if let Some(cur) = self.settings.tile_order.iter().position(|t| t == &drag.name) {
+                        if cur != target {
+                            let item = self.settings.tile_order.remove(cur);
+                            self.settings.tile_order.insert(target, item);
+                        }
+                    }
                     let _ = self.settings.save();
                     // Order changed — the widget re-renders in the new order.
                     return self.resize_widget();
@@ -2240,7 +2287,7 @@ impl App {
                     let e = t.elapsed().as_secs_f32();
                     if e < 0.9 { 1.0 } else { ((1.8 - e) / 0.9).clamp(0.0, 1.0) }
                 }).unwrap_or(0.0);
-                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)), self.share_dialog.clone(), copied_opacity, self.settings.tile_order.clone(), self.tile_drag.as_ref().map(|d| d.name.clone()))
+                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)), self.share_dialog.clone(), copied_opacity, self.settings.tile_order.clone(), self.tile_drag.as_ref().map(|d| (d.name.clone(), d.gap_anim, d.cursor_y)))
             }
             WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
             WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),
@@ -2517,6 +2564,8 @@ impl App {
                 }
                 _ => None,
             }));
+            // Spring clock — drives the squishy gap even when the cursor is still.
+            subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::DragAnimTick));
         }
         Subscription::batch(subs)
     }
