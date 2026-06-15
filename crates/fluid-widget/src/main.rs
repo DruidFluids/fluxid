@@ -319,7 +319,7 @@ fn cursor_logical_pos() -> Option<(f32, f32)> {
 fn cursor_logical_pos() -> Option<(f32, f32)> { None }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum WindowKind { Widget, Settings, Alerts, GameMode, Help, WidgetMenu, Popout, Utilities, WindowPicker, ThemeStore, PopoutConfig, CpuDriver, Picker, ConfirmDelete }
+enum WindowKind { Widget, Settings, Alerts, GameMode, Help, WidgetMenu, Popout, Utilities, Remote, WindowPicker, ThemeStore, PopoutConfig, CpuDriver, Picker, ConfirmDelete }
 
 // Settings window is a single FIXED size for every tab — it never grows or
 // shrinks when switching tabs. The height is sized to the tallest tab
@@ -345,6 +345,7 @@ fn kind_key(kind: WindowKind) -> Option<&'static str> {
         WindowKind::GameMode => Some("gamemode"),
         WindowKind::Help => Some("help"),
         WindowKind::Utilities => Some("utilities"),
+        WindowKind::Remote => Some("remote"),
         WindowKind::WindowPicker => Some("windowpicker"),
         WindowKind::ThemeStore => Some("themestore"),
         WindowKind::PopoutConfig => Some("popoutconfig"),
@@ -481,7 +482,6 @@ struct App {
     remote_conn: HashMap<String, bool>,
     popout_device: HashMap<window::Id, String>,
     pending_popout: std::collections::VecDeque<String>,
-    remote_expanded: bool,
     // ── Global hotkeys ──
     hotkeys: Option<hotkeys::HotkeyManager>,
     hotkey_rx: Option<std::sync::mpsc::Receiver<hotkeys::HotkeyEvent>>,
@@ -526,7 +526,7 @@ enum Message {
     WindowClosed(window::Id),
     WindowMoved(window::Id, Point),
     OpenSettings, HideWidget, SaveClose, ResetDefaults, Noop,
-    OpenAlerts, OpenGameMode, OpenHelp, OpenUtilities, ClosePopup(window::Id),
+    OpenAlerts, OpenGameMode, OpenHelp, OpenUtilities, OpenRemote, ClosePopup(window::Id),
     OpenUrl(String),
     OpenThemeStore, ApplyPackTheme(usize, usize),
     ThemeStoreOpenFranchise(usize), ThemeStoreBack,
@@ -574,7 +574,6 @@ enum Message {
     HotkeyKeyPressed(iced::keyboard::Key, iced::keyboard::Modifiers),
     ClearHotkey(hotkeys::HotkeyTarget),
     RemotePoll,
-    ToggleRemoteSection(bool),
     SetTcpFeedEnabled(bool),
     CopyHandshakeKey,
     RegenerateKey,
@@ -618,7 +617,6 @@ impl App {
         settings.remote_key = handshake_key;
         remote.set_devices(settings.remote_devices.clone());
         if settings.remote_enabled { remote.set_server_enabled(true); }
-        let remote_expanded = settings.remote_enabled;
 
         // Register global hotkeys from the saved combos.
         let (hotkeys_mgr, hotkey_rx) = hotkeys::HotkeyManager::start();
@@ -644,7 +642,7 @@ impl App {
             _tray: tray, settings_id: sid, show_id: wid, game_id: gid, exit_id: eid,
             remote: Some(remote), remote_rx: Some(remote_rx),
             remote_snapshots: HashMap::new(), remote_conn: HashMap::new(),
-            popout_device: HashMap::new(), pending_popout: std::collections::VecDeque::new(), remote_expanded,
+            popout_device: HashMap::new(), pending_popout: std::collections::VecDeque::new(),
             hotkeys: Some(hotkeys_mgr), hotkey_rx: Some(hotkey_rx), capturing_hotkey: None,
             blocklist_editor: iced::widget::text_editor::Content::with_text(&blocklist_text),
             blocklist_status: String::new(),
@@ -743,12 +741,9 @@ impl App {
     }
     fn open_settings(&mut self) -> Task<Message> {
         if self.settings_window().is_some() { return Task::none(); }
-        let pos = match (self.settings.settings_window_x, self.settings.settings_window_y) {
-            (Some(x), Some(y)) => window::Position::Specific(Point::new(x as f32, y as f32)),
-            _ => window::Position::Default,
-        };
+        // Always open centered on the active monitor.
         let (_, t) = window::open(window::Settings {
-            size: settings_size_for_tab(self.settings_tab), position: pos, decorations: false, transparent: true, resizable: false,
+            size: settings_size_for_tab(self.settings_tab), position: window::Position::Centered, decorations: false, transparent: true, resizable: false,
             level: window::Level::AlwaysOnTop, platform_specific: no_taskbar(), ..Default::default()
         });
         t.map(|id| Message::WindowOpened(id, WindowKind::Settings))
@@ -1216,6 +1211,7 @@ impl App {
             Message::OpenGameMode => self.open_popup(WindowKind::GameMode, popups::GAME_MODE_SIZE),
             Message::OpenHelp => self.open_popup(WindowKind::Help, popups::HELP_SIZE),
             Message::OpenUtilities => self.open_popup(WindowKind::Utilities, popups::UTILITIES_SIZE),
+            Message::OpenRemote => self.open_popup(WindowKind::Remote, popups::REMOTE_SIZE),
             // ── Optional CPU sensor driver (PawnIO) ──
             Message::OpenCpuDriver => {
                 self.cpu_driver_installed = cpu_driver::is_installed();
@@ -1506,7 +1502,6 @@ impl App {
                 Task::none()
             }
             Message::RemotePoll => { self.drain_remote_events(); Task::none() }
-            Message::ToggleRemoteSection(on) => { self.remote_expanded = on; Task::none() }
             Message::SetTcpFeedEnabled(on) => {
                 self.settings.remote_enabled = on;
                 // Add the firewall rule the first time the feed is enabled (one
@@ -1934,8 +1929,23 @@ impl App {
             WindowKind::Settings => {
                 let cpu_name = fmt::shorten(&self.snapshot.cpu.name);
                 let gpu_name = fmt::shorten(&self.snapshot.gpu.name);
+                let capturing_ct = self.capturing_hotkey == Some(hotkeys::HotkeyTarget::ClickThrough);
+                let update = settings_panel::UpdateView {
+                    current_version: env!("CARGO_PKG_VERSION").to_string(),
+                    mode: self.settings.update_check_mode.clone(),
+                    last_checked: self.last_checked_label(),
+                    status: self.update_status.clone(),
+                    status_kind: self.update_status_kind,
+                    available: self.update_available.as_ref().map(|u| (u.version.clone(), u.changelog.clone())),
+                };
+                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)))
+            }
+            WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
+            WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),
+            WindowKind::Help => popups::help_view(&self.settings, p, id),
+            WindowKind::Utilities => popups::utilities_view(&self.blocklist_editor, &self.blocklist_status, p, id),
+            WindowKind::Remote => {
                 let remote = settings_panel::RemoteView {
-                    expanded: self.remote_expanded,
                     feed_on: self.settings.remote_enabled,
                     handshake_key: self.settings.remote_key.clone(),
                     devices: self.settings.remote_devices.clone(),
@@ -1947,21 +1957,8 @@ impl App {
                     test_status: self.device_test_status.clone(),
                     test_ok: self.device_test_ok,
                 };
-                let capturing_ct = self.capturing_hotkey == Some(hotkeys::HotkeyTarget::ClickThrough);
-                let update = settings_panel::UpdateView {
-                    current_version: env!("CARGO_PKG_VERSION").to_string(),
-                    mode: self.settings.update_check_mode.clone(),
-                    last_checked: self.last_checked_label(),
-                    status: self.update_status.clone(),
-                    status_kind: self.update_status_kind,
-                    available: self.update_available.as_ref().map(|u| (u.version.clone(), u.changelog.clone())),
-                };
-                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), remote, update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)))
+                popups::remote_view(remote, &self.settings, p, id)
             }
-            WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
-            WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),
-            WindowKind::Help => popups::help_view(&self.settings, p, id),
-            WindowKind::Utilities => popups::utilities_view(&self.blocklist_editor, &self.blocklist_status, p, id),
             WindowKind::WindowPicker => popups::window_picker_view(enum_window_titles(), p, id),
             WindowKind::ThemeStore => popups::theme_store_view(self.theme_store_franchise, p, id),
             WindowKind::PopoutConfig => {
