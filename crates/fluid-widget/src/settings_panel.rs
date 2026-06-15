@@ -405,6 +405,33 @@ pub fn view<'a>(
     let internals = ["CPU", "GPU", "RAM", "Network", "Disk", "Clock"];
     let open_is = |n: &str| tiles_open.as_deref() == Some(n);
 
+    // Optional CPU sensor driver (PawnIO) — lives inside the CPU tile section.
+    let driver_status_chip = container(
+        text(status_label).size(11)
+            .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(status_color) })
+    )
+    .padding(iced::Padding { top: 2.0, right: 8.0, bottom: 2.0, left: 8.0 })
+    .style(move |_| iced::widget::container::Style {
+        background: Some(iced::Background::Color(iced::Color { a: 0.14, ..status_color })),
+        border: Border { radius: 5.0.into(), width: 1.0, color: iced::Color { a: 0.5, ..status_color } },
+        ..Default::default()
+    });
+    let driver_btn_label = if cpu_driver_installed { "Manage / Remove" } else { "Install driver" };
+    let cpu_driver = column![
+        text("Temperature driver (optional)").size(11)
+            .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+        text("Reads the CPU's die temperature directly. Fluxid downloads the official signed PawnIO driver, verifies its signature, and installs it on request \u{2014} the rest of the widget works without it.")
+            .size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
+        Space::with_height(4),
+        row![
+            driver_status_chip,
+            Space::with_width(Length::Fill),
+            crate::style::inline_btn_tip(driver_btn_label, Message::OpenCpuDriver, "Open the CPU sensor driver dialog (install, verify, or remove)", p),
+        ].align_y(iced::Alignment::Center),
+    ].spacing(2);
+
     // Bodies (built unconditionally so temp_row/network/disk are consumed once).
     let cpu_body: Element<'a, Message> = column![
         row![
@@ -416,6 +443,8 @@ pub fn view<'a>(
         ].spacing(0).align_y(iced::Alignment::Center),
         temp_row,
         row![field_tog("Temperature", settings.cpu_show_temp, "cpu_temp"), field_tog("Clock", settings.cpu_show_clock, "cpu_clock")].spacing(10),
+        Space::with_height(2),
+        cpu_driver,
     ].spacing(6).into();
     let gpu_body: Element<'a, Message> = column![
         row![
@@ -877,30 +906,6 @@ pub fn view<'a>(
         sh("Font", "Pick fonts for Primary numbers, Secondary labels, and Indicators (units). Toggle 'Sync' to lock all three together. Sizes nudge the chosen font up or down."), fonts,
     ].spacing(4).into();
 
-    // CPU sensor driver (PawnIO) management — status + install/manage button.
-    let driver_status_chip = container(
-        text(status_label).size(11)
-            .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-            .style(move |_| iced::widget::text::Style { color: Some(status_color) })
-    )
-    .padding(iced::Padding { top: 2.0, right: 8.0, bottom: 2.0, left: 8.0 })
-    .style(move |_| iced::widget::container::Style {
-        background: Some(iced::Background::Color(iced::Color { a: 0.14, ..status_color })),
-        border: Border { radius: 5.0.into(), width: 1.0, color: iced::Color { a: 0.5, ..status_color } },
-        ..Default::default()
-    });
-    let driver_btn_label = if cpu_driver_installed { "Manage / Remove" } else { "Install driver" };
-    let cpu_driver = column![
-        text("Reads the CPU's die temperature directly. Fluxid downloads the official signed PawnIO driver, verifies its signature, and installs it on request \u{2014} the rest of the widget works without it.")
-            .size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
-        Space::with_height(4),
-        row![
-            driver_status_chip,
-            Space::with_width(Length::Fill),
-            crate::style::inline_btn_tip(driver_btn_label, Message::OpenCpuDriver, "Open the CPU sensor driver dialog (install, verify, or remove)", p),
-        ].align_y(iced::Alignment::Center),
-    ].spacing(2);
-
     // ── Tools tab: launchers that used to live behind the bottom-left gear ──
     let tool_item = |icon: &str, icon_color: iced::Color, title: &str, subtitle: &str, msg: Message| -> Element<'a, Message> {
         let ic = container(
@@ -942,9 +947,6 @@ pub fn view<'a>(
         tool_item("\u{1F3AE}", iced::Color::from_rgb8(0x6A, 0x9F, 0xD8), "Game Mode", "Hotkey-snap a compact overlay", Message::OpenGameMode),
         tool_item("\u{1F527}", iced::Color::from_rgb8(0x88, 0xAA, 0x55), "Utilities", "System tools & snap blocklist", Message::OpenUtilities),
         tool_item("\u{1F4E1}", iced::Color::from_rgb8(0x5A, 0xB0, 0xC8), "Remote", "Share sensors & monitor other machines", Message::OpenRemote),
-        Space::with_height(8),
-        sh("CPU Sensor Driver", "Optional signed driver (PawnIO) for accurate CPU temperature."),
-        cpu_driver,
         Space::with_height(8),
         sh("Updates", "Check for and install new versions of Fluxid."),
         updates,
