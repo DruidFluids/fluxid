@@ -488,6 +488,14 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+// An in-progress drag-reorder of a tile row in Settings.
+#[derive(Clone)]
+struct TileDrag {
+    name: String,        // the tile being dragged
+    origin_index: usize, // its index in tile_order when the drag began
+    start_y: Option<f32>, // cursor y at the first move (window-relative, logical)
+}
+
 struct App {
     settings: AppSettings,
     snapshot: SensorSnapshot,
@@ -560,6 +568,8 @@ struct App {
     share_dialog: Option<(bool, String)>,
     // When the share code was last copied — drives the fading "Copied!" toast.
     share_copied_at: Option<Instant>,
+    // Active tile-row drag-reorder in Settings.
+    tile_drag: Option<TileDrag>,
     // Picker popup mode: false = themes, true = skins.
     picker_skins: bool,
     // Saved-Themes slot pending delete confirmation.
@@ -648,6 +658,7 @@ enum Message {
     OpenCpuDriver, DismissCpuTempHint,
     SwitchWidgetDevice(Option<String>), SetShowRemoteStatusDot(bool),
     ToggleTileSection(String), SetTileField(String, bool),
+    StartTileDrag(String), TileDragMove(f32), TileDragEnd,
     CpuDriverMoreInfo, CpuDriverBack,
     CpuDriverInstall, CpuDriverUninstall,
     CpuDriverInstallDone(cpu_driver::Outcome),
@@ -716,6 +727,7 @@ impl App {
             preset_arming: None,
             share_dialog: None,
             share_copied_at: None,
+            tile_drag: None,
             picker_skins: false,
             confirm_delete_slot: None,
         };
@@ -759,14 +771,20 @@ impl App {
     }
 
     fn current_tiles(&self) -> Vec<String> {
-        // Canonical C# order (AppSettings.TileOrder default): Clock, CPU, GPU,
-        // RAM, Network, Storage. The Rust port has no drag-reorder UI, so we
-        // always render in this order, filtered by which tiles are enabled.
+        // Render in the user's saved order (drag-reorderable in Settings),
+        // filtered by which tiles are enabled. Canonical is the fallback order
+        // for any tile missing from tile_order.
         const CANONICAL: [&str; 6] = ["Clock", "CPU", "GPU", "RAM", "Network", "Disk"];
+        let mut order: Vec<String> = self.settings.tile_order.iter()
+            .filter(|t| CANONICAL.contains(&t.as_str()))
+            .cloned()
+            .collect();
+        for c in CANONICAL {
+            if !order.iter().any(|t| t == c) { order.push(c.to_string()); }
+        }
         let enabled = if self.game_mode { &self.settings.game_mode_tiles } else { &self.settings.visible_tiles };
-        CANONICAL.iter()
-            .filter(|t| enabled.iter().any(|v| v == *t))
-            .map(|s| s.to_string())
+        order.into_iter()
+            .filter(|t| enabled.iter().any(|v| v == t))
             .collect()
     }
     fn widget_size(&self) -> Size {
@@ -1319,6 +1337,43 @@ impl App {
                 self.tiles_section = if self.tiles_section.as_deref() == Some(name.as_str()) { None } else { Some(name) };
                 // Grow/shrink the window to fit the expanded tile's options.
                 self.settings_window().map(|id| window::resize(id, self.settings_size())).unwrap_or(Task::none())
+            }
+            Message::StartTileDrag(name) => {
+                let origin_index = self.settings.tile_order.iter().position(|t| t == &name).unwrap_or(0);
+                self.tile_drag = Some(TileDrag { name, origin_index, start_y: None });
+                // Collapse any open accordion so the list height is stable while dragging.
+                self.tiles_section = None;
+                Task::none()
+            }
+            Message::TileDragMove(y) => {
+                if let Some(drag) = self.tile_drag.as_mut() {
+                    match drag.start_y {
+                        None => drag.start_y = Some(y),
+                        Some(sy) => {
+                            // Each tile row is ~ROW_H logical px tall.
+                            const ROW_H: f32 = 37.0;
+                            let n = self.settings.tile_order.len();
+                            let moved = ((y - sy) / ROW_H).round() as i64;
+                            let target = (drag.origin_index as i64 + moved).clamp(0, n as i64 - 1) as usize;
+                            let name = drag.name.clone();
+                            if let Some(cur) = self.settings.tile_order.iter().position(|t| t == &name) {
+                                if cur != target {
+                                    let item = self.settings.tile_order.remove(cur);
+                                    self.settings.tile_order.insert(target, item);
+                                }
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::TileDragEnd => {
+                if self.tile_drag.take().is_some() {
+                    let _ = self.settings.save();
+                    // Order changed — the widget re-renders in the new order.
+                    return self.resize_widget();
+                }
+                Task::none()
             }
             Message::SetTileField(key, on) => {
                 let st = &mut self.settings;
@@ -2185,7 +2240,7 @@ impl App {
                     let e = t.elapsed().as_secs_f32();
                     if e < 0.9 { 1.0 } else { ((1.8 - e) / 0.9).clamp(0.0, 1.0) }
                 }).unwrap_or(0.0);
-                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)), self.share_dialog.clone(), copied_opacity)
+                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)), self.share_dialog.clone(), copied_opacity, self.settings.tile_order.clone(), self.tile_drag.as_ref().map(|d| d.name.clone()))
             }
             WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
             WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),
@@ -2450,6 +2505,18 @@ impl App {
         // Drive the fading "Copied!" toast in the share dialog.
         if self.share_copied_at.is_some() {
             subs.push(iced::time::every(Duration::from_millis(50)).map(|_| Message::CopiedFadeTick));
+        }
+        // While dragging a tile row, follow the cursor and end on mouse-up.
+        if self.tile_drag.is_some() {
+            subs.push(iced::event::listen_with(|event, _status, _id| match event {
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                    Some(Message::TileDragMove(position.y))
+                }
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                    Some(Message::TileDragEnd)
+                }
+                _ => None,
+            }));
         }
         Subscription::batch(subs)
     }

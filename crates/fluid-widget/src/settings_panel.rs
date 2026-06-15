@@ -80,6 +80,8 @@ pub fn view<'a>(
     undo_accent: Option<iced::Color>,
     share_dialog: Option<(bool, String)>,
     copied_opacity: f32,
+    tile_order: Vec<String>,
+    dragging_tile: Option<String>,
 ) -> Element<'a, Message> {
     // ── Style helpers ──
     let sh = |label: &str, tip: &'static str| -> Element<'a, Message> {
@@ -405,9 +407,6 @@ pub fn view<'a>(
             text(label.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
         ].spacing(6).align_y(iced::Alignment::Center).into()
     };
-    // Clock first to match the on-screen tile order (Clock renders at the top).
-    let names = ["Clock", "CPU", "GPU", "RAM", "Network", "Disk"];
-    let internals = ["Clock", "CPU", "GPU", "RAM", "Network", "Disk"];
     let open_is = |n: &str| tiles_open.as_deref() == Some(n);
 
     // Optional CPU sensor driver (PawnIO) — lives inside the CPU tile section.
@@ -504,27 +503,47 @@ pub fn view<'a>(
             .into()
     };
 
+    // Display the rows in the user's saved order (drag-reorderable); any tile
+    // missing from tile_order falls back to canonical order.
+    const CANON: [&str; 6] = ["Clock", "CPU", "GPU", "RAM", "Network", "Disk"];
+    let mut display_order: Vec<&str> = tile_order.iter()
+        .map(|s| s.as_str())
+        .filter(|t| CANON.contains(t))
+        .collect();
+    for c in CANON {
+        if !display_order.contains(&c) { display_order.push(c); }
+    }
+
     let mut tcol = column![].spacing(0);
-    let last = names.len() - 1;
-    for (i, (disp, intern)) in names.iter().zip(internals.iter()).enumerate() {
-        let open = open_is(disp);
-        let vis = settings.visible_tiles.iter().any(|v| v == intern);
-        let internal = intern.to_string();
-        let nm = disp.to_string();
-        let nm2 = disp.to_string();
+    let last = display_order.len() - 1;
+    for (i, &name) in display_order.iter().enumerate() {
+        let canon_idx = CANON.iter().position(|c| *c == name).unwrap();
+        let open = open_is(name);
+        let vis = settings.visible_tiles.iter().any(|v| v == name);
+        let is_dragging = dragging_tile.as_deref() == Some(name);
         // Soft, custom-drawn expand chevron (rounded strokes, not a font glyph).
         let chev_col = if open { p.accent } else { p.muted };
         let lblcol = if open { p.accent } else { p.text };
+        // Drag grip — press and drag to reorder this row (and the widget tile).
+        let grip = crate::style::with_tip(
+            mouse_area(
+                container(crate::style::drag_grip(if is_dragging { p.accent } else { p.muted }, 16.0))
+                    .padding(iced::Padding { top: 0.0, right: 4.0, bottom: 0.0, left: 4.0 })
+                    .center_y(Length::Fill)
+            )
+            .interaction(iced::mouse::Interaction::Grab)
+            .on_press(Message::StartTileDrag(name.to_string())),
+            "Drag to reorder", p);
         // The label fills the row width and is the expand click-target.
         let expand = button(
             row![
-                text(disp.to_string()).size(13).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                text(name.to_string()).size(13).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
                     .style(move |_| iced::widget::text::Style { color: Some(lblcol) }),
                 Space::with_width(Length::Fill),
             ].align_y(iced::Alignment::Center)
         )
         .width(Length::Fill)
-        .padding(iced::Padding { top: 10.0, right: 4.0, bottom: 10.0, left: 8.0 })
+        .padding(iced::Padding { top: 10.0, right: 4.0, bottom: 10.0, left: 6.0 })
         .style(move |_: &iced::Theme, status: button::Status| {
             let hover = matches!(status, button::Status::Hovered);
             button::Style {
@@ -533,12 +552,12 @@ pub fn view<'a>(
                 ..Default::default()
             }
         })
-        .on_press(Message::ToggleTileSection(nm.clone()));
+        .on_press(Message::ToggleTileSection(name.to_string()));
         let chev_btn = crate::style::with_tip(
             button(crate::style::expand_chevron(open, chev_col, 18.0))
                 .padding(iced::Padding { top: 7.0, right: 9.0, bottom: 7.0, left: 9.0 })
                 .style(|_: &iced::Theme, _: button::Status| button::Style { background: None, ..Default::default() })
-                .on_press(Message::ToggleTileSection(nm2.clone())),
+                .on_press(Message::ToggleTileSection(name.to_string())),
             if open { "Collapse options" } else { "Expand for more options" }, p);
         // Thin separator between the Shown/Hidden chip and the expand arrow.
         let sep = container(Space::with_width(Length::Fixed(1.0)))
@@ -547,16 +566,23 @@ pub fn view<'a>(
                 background: Some(iced::Background::Color(iced::Color { a: 0.22, ..p.muted })),
                 ..Default::default()
             });
-        let header = row![
+        let header = container(row![
+            grip,
             expand,
-            crate::style::with_tip(vis_chip(vis, internal), if vis { "Hide this tile" } else { "Show this tile" }, p),
+            crate::style::with_tip(vis_chip(vis, name.to_string()), if vis { "Hide this tile" } else { "Show this tile" }, p),
             Space::with_width(10),
             sep,
             Space::with_width(4),
             chev_btn,
-        ].align_y(iced::Alignment::Center);
+        ].align_y(iced::Alignment::Center))
+        .style(move |_| iced::widget::container::Style {
+            // Lift the row being dragged.
+            background: if is_dragging { Some(iced::Background::Color(iced::Color { a: 0.16, ..p.accent })) } else { None },
+            border: Border { radius: 8.0.into(), ..Border::default() },
+            ..Default::default()
+        });
         tcol = tcol.push(header);
-        let body = bodies[i].take().unwrap();
+        let body = bodies[canon_idx].take().unwrap();
         if open {
             tcol = tcol.push(
                 container(body).width(Length::Fill)

@@ -115,6 +115,44 @@ pub fn brand_pulse<'a>(color: Color, size: f32) -> Element<'a, Message> {
         .into()
 }
 
+/// A drag-handle "grip" — two columns of three dots, the conventional
+/// reorder affordance.
+struct DragGrip {
+    color: Color,
+}
+impl canvas::Program<Message> for DragGrip {
+    type State = ();
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: iced::Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let r = bounds.width.min(bounds.height);
+        let (cx, cy) = (bounds.width / 2.0, bounds.height / 2.0);
+        let dot = (r * 0.13).max(1.2);
+        let dx = r * 0.22;
+        let dy = r * 0.30;
+        for &ox in &[cx - dx, cx + dx] {
+            for &oy in &[cy - dy, cy, cy + dy] {
+                frame.fill(&canvas::Path::circle(iced::Point::new(ox, oy), dot), self.color);
+            }
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+/// The drag-handle grip as a fixed-size element.
+pub fn drag_grip<'a>(color: Color, size: f32) -> Element<'a, Message> {
+    canvas::Canvas::new(DragGrip { color })
+        .width(iced::Length::Fixed(size * 0.7))
+        .height(iced::Length::Fixed(size))
+        .into()
+}
+
 /// Field colour (dropdowns / inputs) derived from the theme background, so it
 /// stays readable on both dark and light themes: dark themes get a clearly
 /// darker field, light themes a subtly darker one (a muddy mid-tone from a flat
