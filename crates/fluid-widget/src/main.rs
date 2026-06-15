@@ -53,21 +53,25 @@ fn main() -> iced::Result {
     app.run_with(App::new)
 }
 
+// Decode the bundled "fluid" drip logo into RGBA once (shared by the tray icon
+// and the widget window icon).
+fn logo_rgba() -> Option<(Vec<u8>, u32, u32)> {
+    const PNG: &[u8] = include_bytes!("../assets/icon.png");
+    let img = image::load_from_memory(PNG).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    Some((img.into_raw(), w, h))
+}
+
 fn make_tray_icon() -> tray_icon::Icon {
-    const SIZE: u32 = 32;
-    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let corner = 6i32;
-            let (xi, yi, s) = (x as i32, y as i32, SIZE as i32);
-            let in_corner = (xi < corner && yi < corner && (corner - xi).pow(2) + (corner - yi).pow(2) > corner.pow(2))
-                || (xi >= s - corner && yi < corner && (xi - (s - corner)).pow(2) + (corner - yi).pow(2) > corner.pow(2))
-                || (xi < corner && yi >= s - corner && (corner - xi).pow(2) + (yi - (s - corner)).pow(2) > corner.pow(2))
-                || (xi >= s - corner && yi >= s - corner && (xi - (s - corner)).pow(2) + (yi - (s - corner)).pow(2) > corner.pow(2));
-            if in_corner { rgba.extend_from_slice(&[0,0,0,0]); }
-            else { rgba.extend_from_slice(&[0,168,255,255]); }
+    if let Some((rgba, w, h)) = logo_rgba() {
+        if let Ok(icon) = tray_icon::Icon::from_rgba(rgba, w, h) {
+            return icon;
         }
     }
+    // Fallback: a plain accent rounded square.
+    const SIZE: u32 = 32;
+    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+    for _ in 0..(SIZE * SIZE) { rgba.extend_from_slice(&[0, 168, 255, 255]); }
     tray_icon::Icon::from_rgba(rgba, SIZE, SIZE).expect("tray icon")
 }
 
@@ -664,8 +668,9 @@ impl App {
             window::Position::Specific(Point::new(app.settings.window_x as f32, app.settings.window_y as f32))
         } else { window::Position::Centered };
         let level = if app.settings.always_on_top { window::Level::AlwaysOnTop } else { window::Level::Normal };
+        let icon = logo_rgba().and_then(|(rgba, w, h)| window::icon::from_rgba(rgba, w, h).ok());
         let (_id, open) = window::open(window::Settings {
-            size, position, decorations: false, transparent: true, resizable: false, level, ..Default::default()
+            size, position, decorations: false, transparent: true, resizable: false, level, icon, ..Default::default()
         });
         let open_task = open.map(|id| Message::WindowOpened(id, WindowKind::Widget));
         // Auto mode: silently check for updates on launch.
