@@ -285,5 +285,33 @@ TOP corners to match the rounded bottom.
   root `container(framed).padding(1)` so it's inset 1px from the window edge;
   top corners now render rounded, symmetric with the bottom. Verified on white.
 
+### Round 6 — corner-rounding via DWM (toggle), exe icon, tooltips, firewall cleanup
+After the inset hack didn't actually round the frame (objective white-backdrop +
+accent-border captures proved the iced root container renders SQUARE top corners
+no matter what — the rounded look was the *tiles*), switched to OS-level rounding.
+- **Round corners = Appearance toggle** (`round_corners` bool in fluid-core
+  settings, default true). Applied via **DwmSetWindowAttribute
+  (DWMWA_WINDOW_CORNER_PREFERENCE)** in `set_window_rounded()` — reliable Win11
+  rounding of the actual window. Applied on `WindowOpened`/Widget and on toggle
+  (`Message::SetRoundCorners`). Toggle UI added to the Size block (Appearance).
+  Added `Win32_Graphics_Dwm` feature. Verified rounded via screenshot.
+- **Title bar smaller**: top padding 8→4 (asymmetric `Padding`), header 20→16,
+  gap 4→2; `widget_size()` height calc updated to match (now 4+16+2+…+8).
+- **Gear was vanishing** at the short header — the size-14 ⚙ line box (1.3
+  leading) overflowed the row and got clipped (the size-12 ✕ survived). Fix:
+  `text.line_height(Relative(1.0))` on the icon glyphs + header height 16.
+- **Exe icon**: Rust binaries ship no icon resource → blank icon in Explorer/
+  taskbar. Added `crates/fluid-widget/build.rs` that builds a multi-size
+  `fluxid.ico` from `assets/icon.png` (256²) via the `ico` crate and embeds it
+  with `winresource` (best-effort: warns + continues if rc.exe is absent).
+  Verified ExtractAssociatedIcon returns an icon.
+- **Tooltips** opened under the cursor (Position::Top flips down when the gear/X
+  sit flush at the widget top). `with_tip` now uses `Position::Right` + `.gap(8)`
+  so they open cleanly to the side.
+- **Uninstall removes the firewall rule** (`engine.rs`): the widget adds a
+  "Fluxid Remote Sensor" inbound TCP rule when remote monitoring is enabled;
+  uninstall now queries for it (no elevation) and, if present, deletes it
+  elevated (one UAC) — no stale inbound allow rule left behind.
+
 ### Known Issues / TODO
 - (to be filled as found)

@@ -354,6 +354,8 @@ pub fn view<'a>(
             row![fl("Tile height"), Space::with_width(Length::Fill), vl(format!("{:.0}px", settings.tile_height))],
             marked_slider(80.0, 150.0, settings.tile_height, 2.0, 110.0, p, Message::SetTileHeight),
         ].spacing(2),
+        sw_tt("Round widget corners", settings.round_corners, Message::SetRoundCorners,
+            "Round the outer corners of the widget window (Windows 11)."),
     ].spacing(4);
 
     // ── Network: paired grid ──

@@ -292,6 +292,32 @@ fn set_click_through(_title: &str, on: bool) {
 #[cfg(not(target_os = "windows"))]
 fn set_click_through(_: &str, _: bool) {}
 
+// Round (or square) the widget window's corners via DWM (Windows 11+). iced's
+// container border-radius doesn't render on the transparent root window's top
+// corners, so we round the actual OS window instead — reliable and crisp.
+#[cfg(target_os = "windows")]
+fn set_window_rounded(round: bool) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+        DWMWCP_ROUND, DWM_WINDOW_CORNER_PREFERENCE,
+    };
+    let hwnd = match widget_hwnd() {
+        Some(h) => h,
+        None => return,
+    };
+    let pref: DWM_WINDOW_CORNER_PREFERENCE = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &pref as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
+        );
+    }
+}
+#[cfg(not(target_os = "windows"))]
+fn set_window_rounded(_: bool) {}
+
 // Resolve + cache the widget HWND (renames the window to a unique title).
 fn rename_widget_window() {
     #[cfg(target_os = "windows")]
@@ -563,6 +589,7 @@ enum Message {
     SetDisk(String), SetAdapter(String),
     SetAlwaysOnTop(bool), SetRunAtStartup(bool),
     SetUiScale(f32), SetClickThrough(bool), SetSnapWindows(bool), SetSnapDistance(f32),
+    SetRoundCorners(bool),
     SnapWidgetNow,
     TrafficCycle,
     SetArrowSpacing(f32), SetArrowFontOffset(f32),
@@ -729,11 +756,12 @@ impl App {
         // The device switcher tabs add a row above the tiles (only when a remote
         // device exists and we're not in the compact game-mode overlay).
         let tabs_h = if self.show_device_tabs() { 24.0 } else { 0.0 };
-        // Header bar (15) + gap (2) + top/bottom padding (8 each). Keep in sync
-        // with the `header` row height and the Space before `body` in view().
+        // Top padding (4) + header bar (16) + gap (2) + bottom padding (8). Keep
+        // in sync with the root container padding, the `header` row height, and
+        // the Space before `body` in view().
         match self.effective_orientation() {
-            Orientation::Horizontal => Size::new(16.0 + n * tw + (n - 1.0) * sp, 8.0 + 15.0 + 2.0 + tabs_h + th + 8.0),
-            Orientation::Vertical => Size::new(tw + 16.0, 8.0 + 15.0 + 2.0 + tabs_h + n * th + (n - 1.0) * sp + 8.0),
+            Orientation::Horizontal => Size::new(16.0 + n * tw + (n - 1.0) * sp, 4.0 + 16.0 + 2.0 + tabs_h + th + 8.0),
+            Orientation::Vertical => Size::new(tw + 16.0, 4.0 + 16.0 + 2.0 + tabs_h + n * th + (n - 1.0) * sp + 8.0),
         }
     }
     // The device switcher shows only when at least one remote device exists and
@@ -1201,8 +1229,10 @@ impl App {
                 }
                 if kind == WindowKind::Widget {
                     // Give the widget a unique OS window title (FindWindow target
-                    // for snap + click-through), then apply click-through state.
+                    // for snap + click-through), then apply click-through +
+                    // rounded-corner state.
                     rename_widget_window();
+                    set_window_rounded(self.settings.round_corners);
                     return self.apply_click_through();
                 }
                 // A settings/popup opened: drop the widget below it.
@@ -1570,6 +1600,12 @@ impl App {
             Message::SetRunAtStartup(on) => { self.settings.run_at_startup = on; set_run_at_startup(on); Task::none() }
             Message::SetUiScale(v) => { self.settings.ui_scale = v; self.resize_widget() }
             Message::SetClickThrough(on) => { self.settings.click_through = on; self.apply_click_through() }
+            Message::SetRoundCorners(on) => {
+                self.settings.round_corners = on;
+                let _ = self.settings.save();
+                set_window_rounded(on);
+                Task::none()
+            }
             Message::SetSnapWindows(on) => { self.settings.snap_to_windows = on; Task::none() }
             Message::SetSnapDistance(v) => { self.settings.snap_distance = v; Task::none() }
             Message::TrafficCycle => {
@@ -2254,7 +2290,11 @@ impl App {
             Orientation::Horizontal => row(tiles).spacing(skin.tile_spacing).into(),
         };
         let icon_btn = |label: &str, sz: u16, msg: Message| {
+            // line_height 1.0 keeps the glyph's box ~= its font size so the gear
+            // isn't clipped by the short header row (default 1.3 leading was
+            // overflowing the 14px row and dropping the ⚙).
             button(text(label.to_string()).size(sz).font(iced::Font::with_name("Segoe UI Symbol"))
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
             ).padding(0).style(|_, _| button::Style { background: None, ..Default::default() }).on_press(msg)
         };
@@ -2262,7 +2302,7 @@ impl App {
             style::with_tip(icon_btn("\u{2699}", 14, Message::OpenSettings), "Open settings", p),
             Space::with_width(Length::Fill),
             style::with_tip(icon_btn("\u{2715}", 12, Message::HideWidget), "Hide the widget (stays running in the tray)", p),
-        ].height(15).align_y(iced::Alignment::Center);
+        ].height(16).align_y(iced::Alignment::Center);
 
         // Device switcher tabs (this PC + each remote), shown only with remotes.
         let widget_border = skin.border_color(&p);
@@ -2279,20 +2319,18 @@ impl App {
         } else {
             iced::Shadow::default()
         };
-        let framed = container(shell)
-            .width(Length::Fill).height(Length::Fill).padding(8)
+        // Tighter top inset so the gear/X bar hugs the top edge (less empty
+        // space). The visible corner rounding is handled at the OS level via
+        // set_window_rounded (DWM), gated by the round_corners setting.
+        let root = container(shell)
+            .width(Length::Fill).height(Length::Fill)
+            .padding(iced::Padding { top: 4.0, right: 8.0, bottom: 8.0, left: 8.0 })
             .style(move |_| iced::widget::container::Style {
                 background: Some(iced::Background::Color(p.bg)),
                 border: Border { radius: skin.widget_radius.into(), width: skin.widget_border, color: widget_border },
                 shadow: frame_shadow,
                 ..Default::default()
             });
-        // iced's wgpu renderer doesn't round a quad's TOP corners when it sits
-        // flush against the top of the window/viewport (bottom corners round
-        // fine). Inset the rounded frame by 1px inside a transparent root so the
-        // top corners have room to render — keeps top/bottom symmetric.
-        let root = container(framed)
-            .width(Length::Fill).height(Length::Fill).padding(1);
         mouse_area(root)
             .on_press(Message::DragWindow(id))
             .on_release(Message::SnapWidgetNow)

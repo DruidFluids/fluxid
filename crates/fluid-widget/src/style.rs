@@ -104,7 +104,9 @@ pub fn with_tip<'a>(el: impl Into<Element<'a, Message>>, tip: &str, p: Palette) 
         border: Border { radius: 6.0.into(), width: 1.0, color: Color { a: 0.4, ..p.muted } },
         ..Default::default()
     });
-    tooltip(el, bubble, tooltip::Position::Top).into()
+    // Open to the right of the element with a small gap — keeps the tip clear of
+    // the cursor instead of popping up under it (it stays within the window).
+    tooltip(el, bubble, tooltip::Position::Right).gap(8).into()
 }
 
 /// `inline_btn` with a tooltip — the preferred constructor for action buttons.

@@ -35,6 +35,7 @@ pub struct AppSettings {
     pub widget_opacity: f32,
     pub click_through: bool,
     pub always_on_top: bool,
+    pub round_corners: bool,
 
     pub update_interval_ms: u64,
     pub run_at_startup: bool,
@@ -149,6 +150,7 @@ impl Default for AppSettings {
             widget_opacity: 0.90,
             click_through: false,
             always_on_top: true,
+            round_corners: true,
             update_interval_ms: 1500,
             run_at_startup: false,
             ui_scale: 1.0,
