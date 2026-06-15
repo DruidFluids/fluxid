@@ -257,5 +257,18 @@ step indicator on top → centered content → divider → centered button pair.
      `Segoe UI Symbol` + accent color, label in default font.
   Re-captured: all four pages correct.
 
+### Round 4 — fix black console window on launch (found during install review)
+User saw a big black window (912×517, title = the exe path) appear next to the
+widget after installing. Diagnosed by enumerating fluxid's visible windows: it
+had the tile (146×614 "Fluxid Widget"), the 15×15 tray helper, AND a 912×517
+decorated window titled with the exe path — i.e. a **Windows console**.
+`fluid-widget` had no `windows_subsystem` attribute, so fluxid.exe was a
+console-subsystem app; launching it (installer, Start Menu, desktop shortcut)
+spawned a console. Never noticed in dev because `cargo run` already owns a
+console. Fix: `#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem
+= "windows")]` on fluid-widget/src/main.rs (debug keeps the console for tracing).
+Verified: rebuilt release, installed exe PE subsystem = 2 (GUI), and the running
+installed fluxid now shows only the tile + tray — no console.
+
 ### Known Issues / TODO
 - (to be filled as found)

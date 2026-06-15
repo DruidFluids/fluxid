@@ -1,6 +1,11 @@
 //! Fluxid widget — the iced daemon: windows, update loop, snapping,
 //! game mode, hotkeys, remote monitoring, and the system tray.
 
+// Release builds are a GUI app — no console window. Without this, launching
+// fluxid.exe (e.g. from the installer or a shortcut) pops a black console
+// window alongside the widget. Debug keeps the console for dev/tracing output.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod tile;
 mod style;
 mod fmt;
