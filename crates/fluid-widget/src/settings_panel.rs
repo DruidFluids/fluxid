@@ -1076,7 +1076,16 @@ pub fn view<'a>(
             border: Border { radius: 18.0.into(), width: 1.0, color: hairline },
             ..Default::default()
         });
-    let columns = column![strip_bar, Space::with_height(12), active_pane].width(Length::Fill);
+    // Tabs pinned to the top; the active card is vertically centred in the
+    // remaining space so the (fixed-height) window's leftover room is split
+    // evenly above and below it.
+    let columns = column![
+        strip_bar,
+        Space::with_height(12),
+        container(active_pane).width(Length::Fill).height(Length::Fill).center_y(Length::Fill),
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill);
 
     // 32px caption: "Settings" left, ✕ right, whole bar draggable
     let close_btn = crate::style::with_tip(button(
@@ -1137,12 +1146,7 @@ pub fn view<'a>(
 
     // Caption sits flush in the top-left corner; the body below is inset.
     let body = container(column![
-        scrollable(container(columns).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 8.0, left: 0.0 }))
-            .height(Length::Fill)
-            // Never show a visible scrollbar; the window is sized to fit the content.
-            .direction(iced::widget::scrollable::Direction::Vertical(
-                iced::widget::scrollable::Scrollbar::new().width(0.0).scroller_width(0.0).margin(0.0),
-            )),
+        columns,
         divider,
         bottom_bar,
     ]).width(Length::Fill).height(Length::Fill)

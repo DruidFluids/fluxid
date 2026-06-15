@@ -731,27 +731,12 @@ impl App {
         (app, task)
     }
 
-    // Size the settings window to the current tab's content so there's no big
-    // empty void below it. The Tiles tab grows when a tile's options expand or
-    // when edge-snap adds its sub-controls.
+    // One fixed height for every tab and state — tall enough for the densest
+    // content (Tiles with a tile's options expanded). The content is vertically
+    // centred in the settings panel, so switching tabs or expanding a tile never
+    // resizes the window and the leftover space is split evenly top/bottom.
     fn settings_size(&self) -> Size {
-        let h = match self.settings_tab {
-            1 => 788.0, // Appearance (densest tab)
-            2 => 524.0, // Tools
-            _ => {
-                // Tiles: base list + Layout + Behavior, plus dynamic extras.
-                let mut h: f32 = if self.settings.snap_to_edges { 690.0 } else { 628.0 };
-                h += match self.tiles_section.as_deref() {
-                    Some("CPU") => 150.0,
-                    Some("GPU") => 78.0,
-                    Some("Network") | Some("Disk") => 92.0,
-                    Some("RAM") | Some("Clock") => 30.0,
-                    _ => 0.0,
-                };
-                h.min(836.0)
-            }
-        };
-        Size::new(SETTINGS_WIDTH, h)
+        Size::new(SETTINGS_WIDTH, 846.0)
     }
 
     fn effective_orientation(&self) -> Orientation {
