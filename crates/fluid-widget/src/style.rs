@@ -18,6 +18,40 @@ pub fn corners_rounded() -> bool { ROUND_CORNERS.load(Ordering::Relaxed) }
 /// A corner radius gated on the rounded-corners toggle (0.0 when off).
 pub fn win_radius(r: f32) -> f32 { if corners_rounded() { r } else { 0.0 } }
 
+/// Rotate a colour's hue by `deg` degrees (keeping saturation/lightness), used
+/// to derive a set of distinct-but-harmonious accent-anchored hues — e.g. for
+/// the Tools cards, so they track the active theme instead of fixed colours.
+pub fn shift_hue(c: Color, deg: f32) -> Color {
+    let (r, g, b) = (c.r, c.g, c.b);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if d.abs() < 1e-6 {
+        return c; // greyscale — nothing to rotate
+    }
+    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+    let mut h = if max == r {
+        (g - b) / d + if g < b { 6.0 } else { 0.0 }
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    } / 6.0;
+    h = (h + deg / 360.0).rem_euclid(1.0);
+    let hue2rgb = |p: f32, q: f32, mut t: f32| -> f32 {
+        if t < 0.0 { t += 1.0; }
+        if t > 1.0 { t -= 1.0; }
+        if t < 1.0 / 6.0 { p + (q - p) * 6.0 * t }
+        else if t < 1.0 / 2.0 { q }
+        else if t < 2.0 / 3.0 { p + (q - p) * (2.0 / 3.0 - t) * 6.0 }
+        else { p }
+    };
+    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = 2.0 * l - q;
+    Color { r: hue2rgb(p, q, h + 1.0 / 3.0), g: hue2rgb(p, q, h), b: hue2rgb(p, q, h - 1.0 / 3.0), a: c.a }
+}
+
 /// A soft, custom-drawn expand chevron with rounded caps/joins — a smooth stroke
 /// rather than a (sharp) font glyph. Points down (⌄) when collapsed = "expand
 /// for more", up (⌃) when open = "collapse".

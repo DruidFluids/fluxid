@@ -9,8 +9,9 @@
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-// The public releases live on the original repo; fluxid is private.
 const API_URL: &str = "https://api.github.com/repos/DruidFluids/fluxid/releases/latest";
+/// Human-facing page for the latest release (the "view on GitHub" link).
+pub const RELEASES_URL: &str = "https://github.com/DruidFluids/fluxid/releases/latest";
 
 /// A newer release that passed version comparison and is ready to download.
 #[derive(Debug, Clone)]

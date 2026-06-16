@@ -1042,12 +1042,26 @@ pub fn view<'a>(
         2 => iced::Color::from_rgb8(0xC0, 0x60, 0x60),
         _ => p.muted,
     };
+    let mut version_row = row![
+        text("Current version").size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
+        Space::with_width(Length::Fill),
+        text(format!("v{}", update.current_version)).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+    ].align_y(iced::Alignment::Center);
+    // Link to the latest GitHub release, to the right of the version.
+    if update.latest_changelog.is_some() {
+        version_row = version_row.push(Space::with_width(10));
+        version_row = version_row.push(crate::style::with_tip(
+            button(
+                text("View release \u{2197}").size(10)
+                    .style(move |_| iced::widget::text::Style { color: Some(p.accent) })
+            )
+            .padding(0)
+            .style(|_: &iced::Theme, _: button::Status| button::Style { background: None, ..Default::default() })
+            .on_press(Message::OpenUrl(crate::updates::RELEASES_URL.to_string())),
+            "Open the latest release on GitHub", p));
+    }
     let mut updates_col = column![
-        row![
-            text("Current version").size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
-            Space::with_width(Length::Fill),
-            text(format!("v{}", update.current_version)).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-        ],
+        version_row,
         Space::with_height(4),
     ].spacing(3);
 
@@ -1180,10 +1194,12 @@ pub fn view<'a>(
         })
         .on_press(msg).into()
     };
-    let c_alerts = iced::Color::from_rgb8(0xE0, 0x60, 0x40);
-    let c_game = iced::Color::from_rgb8(0x6A, 0x9F, 0xD8);
-    let c_util = iced::Color::from_rgb8(0x88, 0xAA, 0x55);
-    let c_remote = iced::Color::from_rgb8(0x5A, 0xB0, 0xC8);
+    // Thematic card colours: four distinct hues rotated around the theme accent,
+    // so the Tools tab tracks the active theme instead of fixed RGB colours.
+    let c_alerts = p.accent;
+    let c_game = crate::style::shift_hue(p.accent, 38.0);
+    let c_util = crate::style::shift_hue(p.accent, -42.0);
+    let c_remote = crate::style::shift_hue(p.accent, 90.0);
     let tools_tab: Element<'a, Message> = column![
         sh("Tools", "Configure Alerts, Game Mode, and Utilities."),
         row![
