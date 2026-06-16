@@ -116,7 +116,7 @@ fluxid is built with security-conscious defaults:
 - **No telemetry** — the app makes zero analytics calls. The only outbound connections are the optional update check, the optional PawnIO driver download (user-initiated), and LAN-only remote monitoring.
 - **PawnIO is never bundled** — the CPU temperature driver is downloaded on demand from its [official GitHub release](https://github.com/namazso/PawnIO.Setup/releases), and is never redistributed here.
 - **Verified updates** — the in-app updater refuses to run a downloaded installer unless its SHA-256 matches a checksum published alongside the release.
-- **Scanned on VirusTotal** — every release is scanned and the result is linked in its notes. v1.0.2: **[1 / 70](https://www.virustotal.com/gui/file/045bd73804dc3b1141adba89f52b960319047ae576c3cf342e5652f2571e9ec3)** (a single false positive from one engine's unsigned-binary heuristic).
+- **Scanned on VirusTotal** — every release is scanned and the result is linked in its notes. v1.0.2: **[1 / 70](https://www.virustotal.com/gui/file/999f579ffa0224ee76bf43e25cff8d6d9a3aa43f6f7d968cab3d1a18ce2a7f57)** (a single false positive from one engine's unsigned-binary heuristic).
 - **Unsigned build** — the installer is not code-signed, so Windows SmartScreen shows a one-time prompt. Verify any download against the `.sha256` published with each release before running it.
 - **Settings stay local** — all configuration lives in `%APPDATA%\fluxid`. Nothing is sent anywhere.
 - **Source-available** — every line is in this repo for inspection (see [License](#license)).
