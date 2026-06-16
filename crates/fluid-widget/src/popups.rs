@@ -9,28 +9,24 @@ use crate::Message;
 
 // ── Shared chrome ──────────────────────────────────────────────────────────
 
-fn caption<'a>(title: &str, win_id: window::Id, p: Palette) -> Element<'a, Message> {
-    // Match the Settings title bar: a muted-coloured band with the brand mark +
-    // a centred title, the close button on the right, drawn in the theme bg
-    // colour for contrast. The whole band drags the window.
+fn caption<'a>(_title: &str, win_id: window::Id, p: Palette) -> Element<'a, Message> {
+    // Clean, minimal title bar: an accent band with just the centred brand mark
+    // and a close button on the right, drawn in the theme bg colour for contrast.
+    // The whole band drags the window.
     let on_bar = Color { a: 1.0, ..p.bg };
     let close = crate::style::with_tip(button(
         text("\u{2715}").size(13).font(iced::Font::with_name("Segoe UI Symbol"))
             .style(move |_| iced::widget::text::Style { color: Some(on_bar) })
     ).padding([2, 8]).style(|_, _| button::Style { background: None, ..Default::default() })
         .on_press(Message::ClosePopup(win_id)), "Close", p);
-    let brand = crate::style::brand_pulse(on_bar, 16.0);
+    let brand = crate::style::brand_pulse(on_bar, 18.0);
     mouse_area(
         container(
             row![
-                // Balances the close button so the brand+title group stays centred.
+                // Balances the close button so the brand mark stays truly centred.
                 Space::with_width(Length::Fixed(34.0)),
                 Space::with_width(Length::Fill),
                 brand,
-                Space::with_width(8),
-                text(title.to_string()).size(13)
-                    .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-                    .style(move |_| iced::widget::text::Style { color: Some(on_bar) }),
                 Space::with_width(Length::Fill),
                 close,
             ].align_y(iced::Alignment::Center)
