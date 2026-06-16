@@ -39,6 +39,45 @@ pub struct UpdateView {
     pub latest_changelog: Option<(String, String)>, // latest release notes (version, body)
 }
 
+// Render a GitHub-flavoured-markdown release body as styled elements so the raw
+// `###` / `-` / `**` markers don't show. Line-based — handles headings, bullets
+// (with nesting), blank-line spacing, and strips inline bold/code markers.
+fn changelog_md<'a>(body: &str, p: Palette) -> Element<'a, Message> {
+    let clean = |s: &str| s.replace("**", "").replace('`', "");
+    let body_col = iced::Color { a: 0.9, ..p.text };
+    let line_txt = move |s: String, size: u16, w: iced::font::Weight, c: iced::Color| -> Element<'a, Message> {
+        text(s).size(size).width(Length::Fill)
+            .font(iced::Font { weight: w, ..iced::Font::DEFAULT })
+            .style(move |_| iced::widget::text::Style { color: Some(c) }).into()
+    };
+    let mut col = column![].spacing(3).width(Length::Fill);
+    for raw in body.lines() {
+        let lead = raw.len() - raw.trim_start().len();
+        let t = raw.trim();
+        if t.is_empty() {
+            col = col.push(Space::with_height(4));
+        } else if let Some(h) = t.strip_prefix("### ") {
+            col = col.push(Space::with_height(2));
+            col = col.push(line_txt(clean(h), 12, iced::font::Weight::Semibold, p.text));
+        } else if let Some(h) = t.strip_prefix("## ") {
+            col = col.push(Space::with_height(3));
+            col = col.push(line_txt(clean(h), 13, iced::font::Weight::Bold, p.accent));
+        } else if let Some(h) = t.strip_prefix("# ") {
+            col = col.push(line_txt(clean(h), 14, iced::font::Weight::Bold, p.text));
+        } else if t.starts_with("- ") || t.starts_with("* ") {
+            col = col.push(row![
+                Space::with_width(8.0 + (lead as f32) * 2.0),
+                text("\u{2022}").size(10).style(move |_| iced::widget::text::Style { color: Some(p.accent) }),
+                Space::with_width(6),
+                line_txt(clean(&t[2..]), 10, iced::font::Weight::Normal, body_col),
+            ].align_y(iced::Alignment::Start));
+        } else {
+            col = col.push(line_txt(clean(t), 10, iced::font::Weight::Normal, body_col));
+        }
+    }
+    col.into()
+}
+
 /// A click-to-capture hotkey field: shows the bound combo, "(click to set)"
 /// when empty, or "(press keys…)" while armed. Pressing it emits `arm_msg`.
 pub(crate) fn hotkey_field<'a>(combo: &str, capturing: bool, width: f32, arm_msg: Message, p: Palette) -> Element<'a, Message> {
@@ -1051,10 +1090,7 @@ pub fn view<'a>(
         );
         updates_col = updates_col.push(
             container(
-                scrollable(
-                    text(body).size(10).width(Length::Fill)
-                        .style(move |_| iced::widget::text::Style { color: Some(iced::Color { a: 0.9, ..p.text }) })
-                ).width(Length::Fill).height(Length::Fill)
+                scrollable(changelog_md(&body, p)).width(Length::Fill).height(Length::Fill)
             )
             .padding(8).width(Length::Fill).height(Length::Fill)
             .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(crate::style::field_bg(p))), border: Border { radius: 6.0.into(), ..Border::default() }, ..Default::default() })
