@@ -301,7 +301,7 @@ pub fn alerts_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -
         row![Space::with_width(Length::Fill), primary_btn("Save & Close", Message::ClosePopup(win_id), p)]
             .padding(iced::Padding { top: 8.0, right: 0.0, bottom: 0.0, left: 0.0 }),
     ];
-    shell("TILE ALERTS", win_id, p, body.into())
+    shell("Tile Alerts", win_id, p, body.into())
 }
 
 // ── Game Mode ────────────────────────────────────────────────────────────────
@@ -420,7 +420,7 @@ pub fn game_mode_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id
         row![Space::with_width(Length::Fill), primary_btn("Save & Close", Message::ClosePopup(win_id), p)]
             .padding(iced::Padding { top: 8.0, right: 0.0, bottom: 0.0, left: 0.0 }),
     ];
-    shell("GAME MODE", win_id, p, body.into())
+    shell("Game Mode", win_id, p, body.into())
 }
 
 // ── Help ─────────────────────────────────────────────────────────────────────
@@ -463,7 +463,7 @@ pub fn help_view<'a>(_settings: &AppSettings, p: Palette, win_id: window::Id) ->
         ).padding(iced::Padding { top: 6.0, right: 0.0, bottom: 0.0, left: 0.0 })
     );
     let body = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 8.0, left: 0.0 })).height(Length::Fill);
-    shell("HELP", win_id, p, body.into())
+    shell("Help", win_id, p, body.into())
 }
 
 // ── Optional CPU sensor driver (PawnIO) ─────────────────────────────────────
@@ -578,7 +578,7 @@ pub fn cpu_driver_view<'a>(
         }
     };
 
-    shell("CPU TEMPERATURE", win_id, p, body)
+    shell("CPU Temperature", win_id, p, body)
 }
 
 // ── Utilities (Tweaks) ───────────────────────────────────────────────────────
@@ -657,7 +657,7 @@ pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: 
         column![ct, blocklist_card, disclaimer].spacing(8)
             .padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 0.0 })
     ).height(Length::Fill);
-    shell("UTILITIES", win_id, p, body.into())
+    shell("Utilities", win_id, p, body.into())
 }
 
 pub const REMOTE_SIZE: iced::Size = iced::Size::new(480.0, 640.0);
@@ -802,7 +802,7 @@ pub fn remote_view<'a>(
 
     let body = scrollable(col.padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 0.0 }))
         .height(Length::Fill);
-    shell("REMOTE MONITORING", win_id, p, body.into())
+    shell("Remote Monitoring", win_id, p, body.into())
 }
 
 pub fn window_picker_view<'a>(titles: Vec<String>, p: Palette, win_id: window::Id) -> Element<'a, Message> {
@@ -834,7 +834,7 @@ pub fn window_picker_view<'a>(titles: Vec<String>, p: Palette, win_id: window::I
         );
     }
     let body = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 8.0, left: 0.0 })).height(Length::Fill);
-    shell("PICK WINDOW", win_id, p, body.into())
+    shell("Pick Window", win_id, p, body.into())
 }
 
 // ── Per-device Popout settings editor ────────────────────────────────────────
@@ -844,7 +844,7 @@ pub const POPOUT_CONFIG_SIZE: iced::Size = iced::Size::new(360.0, 540.0);
 pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id: window::Id) -> Element<'a, Message> {
     let dev = match dev {
         Some(d) => d,
-        None => return shell("POPOUT", win_id, p,
+        None => return shell("Popout", win_id, p,
             text("Device not found.".to_string()).size(11)
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }).into()),
     };
@@ -984,7 +984,7 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
         container(col.width(Length::Fill)).width(Length::Fill)
             .padding(iced::Padding { top: 4.0, right: 8.0, bottom: 8.0, left: 0.0 })
     ).width(Length::Fill).height(Length::Fill);
-    shell("POPOUT", win_id, p, body.into())
+    shell("Popout", win_id, p, body.into())
 }
 
 // ── Theme Store (bundled game theme packs) ───────────────────────────────────
@@ -1134,7 +1134,7 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
         Space::with_height(6),
         scrollable(container(grid).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill),
     ].spacing(2);
-    shell("THEME STORE", win_id, p, body.into())
+    shell("Theme Store", win_id, p, body.into())
 }
 
 fn franchise_detail<'a>(pi: usize, settings: &AppSettings, sel: &std::collections::HashSet<String>, p: Palette, win_id: window::Id) -> Element<'a, Message> {
@@ -1234,7 +1234,7 @@ fn franchise_detail<'a>(pi: usize, settings: &AppSettings, sel: &std::collection
         Space::with_height(4),
         scrollable(container(rows).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill),
     ];
-    shell("THEME STORE", win_id, p, body.into())
+    shell("Theme Store", win_id, p, body.into())
 }
 
 // ── Theme / Skin pickers (click the name in Appearance to browse all) ─────────
@@ -1419,7 +1419,7 @@ pub fn picker_view<'a>(skins: bool, settings: &AppSettings, installed_open: bool
             }
         }
     }
-    let title = if skins { "CHOOSE A SKIN" } else { "CHOOSE A THEME" };
+    let title = if skins { "Choose a Skin" } else { "Choose a Theme" };
     // Stable id per list so the scroll position is kept while you click around
     // (and across re-opens within a session).
     let sid = iced::widget::scrollable::Id::new(if skins { "fluxid-skin-picker" } else { "fluxid-theme-picker" });
@@ -1457,5 +1457,5 @@ pub fn confirm_delete_view<'a>(slot: Option<u8>, p: Palette, win_id: window::Id)
             delete,
         ].align_y(iced::Alignment::Center),
     ].spacing(8).height(Length::Fill);
-    shell("CONFIRM", win_id, p, body.into())
+    shell("Confirm", win_id, p, body.into())
 }
