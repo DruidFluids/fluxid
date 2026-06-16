@@ -1224,9 +1224,10 @@ pub fn view<'a>(
         .padding(iced::Padding { top: 0.0, right: 6.0, bottom: 0.0, left: 8.0 })
         .style(move |_| iced::widget::container::Style {
             background: Some(iced::Background::Color(iced::Color { a: 0.07, ..p.accent })),
-            // Match the window's outer corner radius (20) so the caption fills
-            // right into the rounded corner with no window-bg wedge showing.
-            border: Border { radius: iced::border::Radius { top_left: crate::style::win_radius(20.0), top_right: crate::style::win_radius(20.0), bottom_right: 0.0, bottom_left: 0.0 }, ..Border::default() },
+            // Match the window's INNER corner radius (outer 20 − 1.5px border)
+            // so the caption fills the rounded corner exactly — no window-bg
+            // wedge (too small) and no poking past the border (too large).
+            border: Border { radius: iced::border::Radius { top_left: crate::style::win_radius(18.5), top_right: crate::style::win_radius(18.5), bottom_right: 0.0, bottom_left: 0.0 }, ..Border::default() },
             ..Default::default()
         })
     ).on_press(Message::DragWindow(win_id));
