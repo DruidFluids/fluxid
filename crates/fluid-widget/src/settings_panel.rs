@@ -1160,12 +1160,16 @@ pub fn view<'a>(
                 border: Border { radius: 7.0.into(), ..Border::default() },
                 ..Default::default()
             });
+        // Brighten the glyph well above the tint so its detail (e.g. the
+        // controller) reads clearly against the chip.
+        let lift = |c: f32| c + (1.0 - c) * 0.55;
+        let icon_glyph = iced::Color { r: lift(ic_col.r), g: lift(ic_col.g), b: lift(ic_col.b), a: 1.0 };
         let ic = container(
             text(icon.to_string()).size(18).font(iced::Font::with_name("Segoe UI Symbol"))
-                .style(move |_| iced::widget::text::Style { color: Some(ic_col) })
+                .style(move |_| iced::widget::text::Style { color: Some(icon_glyph) })
         ).width(36).height(36).center_x(36).center_y(36)
             .style(move |_| iced::widget::container::Style {
-                background: Some(iced::Background::Color(iced::Color { a: 0.16, ..ic_col })),
+                background: Some(iced::Background::Color(iced::Color { a: 0.22, ..ic_col })),
                 border: Border { radius: 9.0.into(), ..Border::default() },
                 ..Default::default()
             });
@@ -1389,6 +1393,9 @@ pub fn view<'a>(
     // Caption sits flush in the top-left corner; the body below is inset.
     let body = container(column![
         columns,
+        // Breathing room so the content card's rounded bottom border doesn't
+        // collide with the divider line above the action bar.
+        Space::with_height(12),
         divider,
         bottom_bar,
     ]).width(Length::Fill).height(Length::Fill)

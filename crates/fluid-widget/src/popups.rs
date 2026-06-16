@@ -436,7 +436,7 @@ pub fn help_view<'a>(_settings: &AppSettings, p: Palette, win_id: window::Id) ->
                 text("fluxid".to_string()).size(12)
                     .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
                     .style(move |_| iced::widget::text::Style { color: Some(p.accent) }),
-                text("pronounced \u{201C}FLUKS-id\u{201D}  (flux + fluid)".to_string()).size(10)
+                text("pronounced like \u{201C}fluid\u{201D} \u{2014} the x is silent".to_string()).size(10)
                     .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             ].spacing(1)
         ).padding(iced::Padding { top: 6.0, right: 0.0, bottom: 0.0, left: 0.0 })
