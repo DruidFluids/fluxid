@@ -29,8 +29,8 @@ fn pop_color(base: Color, pop: f32) -> Color {
     if pop >= 1.0 { return base; }
     let p = pop.clamp(0.0, 1.0);
     let e = 1.0 - (1.0 - p).powi(3); // ease-out cubic
-    let opacity = 0.45 + 0.55 * e;
-    let bright = (1.0 - e) * 0.40; // brightness lift that fades as it settles
+    let opacity = 0.70 + 0.30 * e; // gentle fade-in (starts only slightly dim)
+    let bright = (1.0 - e) * 0.18; // subtle brightness lift that fades as it settles
     let lift = |c: f32| c + (1.0 - c) * bright;
     Color { r: lift(base.r), g: lift(base.g), b: lift(base.b), a: base.a * opacity }
 }
