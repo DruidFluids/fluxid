@@ -2257,6 +2257,10 @@ impl App {
                 }
             },
             Message::PerformUpdateInstall(path) => {
+                // The installer force-kills this widget, which skips the normal
+                // save-on-close — so persist now (window position lives in memory
+                // only) to keep the widget exactly where it is across the update.
+                let _ = self.settings.save();
                 if let Err(e) = updates::launch_installer(&path) {
                     self.update_progress = None;
                     self.update_status = format!("Could not start installer: {e}");
