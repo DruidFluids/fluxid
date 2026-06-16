@@ -509,6 +509,7 @@ pub fn view<'a>(
         row![field_tog("Speed / type", settings.ram_show_speed, "ram_speed"), field_tog("Usage detail", settings.ram_show_details, "ram_details")].spacing(10).into();
     let net_body: Element<'a, Message> = column![
         row![field_tog("Download", settings.net_show_down, "net_down"), field_tog("Upload", settings.net_show_up, "net_up")].spacing(10),
+        row![field_tog("Upload on top", settings.net_upload_first, "net_swap")].spacing(10),
         network,
     ].spacing(6).into();
     let disk_body: Element<'a, Message> = column![

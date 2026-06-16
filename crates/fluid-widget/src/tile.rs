@@ -566,9 +566,18 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
         // glow box (glow_w) is its layout width — the value the inset must clear.
         centered_stat_line(arrow, v, u, p, accent, spacing, glow_w, s)
     };
+    // Each line carries its own direction arrow, so swapping the order also flips
+    // the arrows for free — download(↓)/upload(↑) stay correct in either layout.
+    let down_line = |c: Color, v: String, u: String| nline(true, down > 0, c, v, u);
+    let up_line = |c: Color, v: String, u: String| nline(false, up > 0, c, v, u);
     let mut lines: Vec<Element<'a, Message>> = Vec::new();
-    if s.net_show_down { lines.push(nline(true, down > 0, down_color, dv, du)); }
-    if s.net_show_up { lines.push(nline(false, up > 0, up_color, uv, uu)); }
+    if s.net_upload_first {
+        if s.net_show_up { lines.push(up_line(up_color, uv, uu)); }
+        if s.net_show_down { lines.push(down_line(down_color, dv, du)); }
+    } else {
+        if s.net_show_down { lines.push(down_line(down_color, dv, du)); }
+        if s.net_show_up { lines.push(up_line(up_color, uv, uu)); }
+    }
 
     stat_lines_body("Network".into(), fit_name(label, s), lines, p, w, s)
 }

@@ -630,6 +630,10 @@ struct App {
     share_copied_at: Option<Instant>,
     // Active tile-row drag-reorder in Settings.
     tile_drag: Option<TileDrag>,
+    // Per-tile eased slot position (visible-list index, fractional). Populated
+    // while a Settings drag is active and during the settle afterward, so the
+    // widget's tiles glide to their new order instead of snapping.
+    tile_slots: std::collections::HashMap<String, f32>,
     // Picker popup mode: false = themes, true = skins.
     picker_skins: bool,
     // Saved-Themes slot pending delete confirmation.
@@ -796,6 +800,7 @@ impl App {
             share_dialog: None,
             share_copied_at: None,
             tile_drag: None,
+            tile_slots: std::collections::HashMap::new(),
             picker_skins: false,
             confirm_delete_slot: None,
         };
@@ -841,7 +846,7 @@ impl App {
         }
     }
 
-    fn current_tiles(&self) -> Vec<String> {
+    fn current_tiles_ordered(&self, preview: bool) -> Vec<String> {
         // Render in the user's saved order (drag-reorderable in Settings),
         // filtered by which tiles are enabled. Canonical is the fallback order
         // for any tile missing from tile_order.
@@ -856,17 +861,40 @@ impl App {
         // While a tile is being dragged in Settings, preview the new order LIVE on
         // the widget — move the dragged tile to the (eased) drop slot, so the
         // widget reflows in sync with the Settings drag animation.
-        if let Some(drag) = &self.tile_drag {
-            let n = order.len();
-            let target = (drag.gap_anim.round() as i64).clamp(0, n as i64 - 1) as usize;
-            if let Some(cur) = order.iter().position(|t| t == &drag.name) {
-                if cur != target { let item = order.remove(cur); order.insert(target, item); }
+        if preview {
+            if let Some(drag) = &self.tile_drag {
+                let n = order.len();
+                let target = (drag.gap_anim.round() as i64).clamp(0, n as i64 - 1) as usize;
+                if let Some(cur) = order.iter().position(|t| t == &drag.name) {
+                    if cur != target { let item = order.remove(cur); order.insert(target, item); }
+                }
             }
         }
         let enabled = if self.game_mode { &self.settings.game_mode_tiles } else { &self.settings.visible_tiles };
         order.into_iter()
             .filter(|t| enabled.iter().any(|v| v == t))
             .collect()
+    }
+    // Visible tiles in the live preview order (dragged tile at its eased drop slot).
+    fn current_tiles(&self) -> Vec<String> { self.current_tiles_ordered(true) }
+    // Visible tiles in their stable, committed order (ignores any in-flight drag) —
+    // used to build the widget so element identity stays put while tiles glide.
+    fn current_tiles_base(&self) -> Vec<String> { self.current_tiles_ordered(false) }
+    // Ease each visible tile's slot toward its target index in the (preview) order.
+    // Returns true once every tile has settled onto an integer slot.
+    fn ease_tile_slots(&mut self) -> bool {
+        if self.tile_slots.is_empty() { return true; }
+        let order = self.current_tiles();
+        let mut settled = true;
+        for (i, name) in order.iter().enumerate() {
+            let cur = self.tile_slots.entry(name.clone()).or_insert(i as f32);
+            let target = i as f32;
+            *cur += (target - *cur) * 0.45;
+            if (target - *cur).abs() < 0.01 { *cur = target; } else { settled = false; }
+        }
+        self.tile_slots.retain(|k, _| order.iter().any(|t| t == k));
+        if settled && self.tile_drag.is_none() { self.tile_slots.clear(); }
+        settled
     }
     fn widget_size(&self) -> Size {
         let n = self.current_tiles().len().max(1) as f32;
@@ -1440,6 +1468,10 @@ impl App {
                 });
                 // Collapse any open accordion so the list height is stable while dragging.
                 self.tiles_section = None;
+                // Seed each visible tile's eased slot at its current position so the
+                // widget can glide them to the new order as the drag progresses.
+                self.tile_slots = self.current_tiles_base().into_iter().enumerate()
+                    .map(|(i, n)| (n, i as f32)).collect();
                 Task::none()
             }
             Message::TileDragMove(y) => {
@@ -1466,6 +1498,8 @@ impl App {
                     drag.gap_anim += (target - drag.gap_anim) * 0.45;
                     if (target - drag.gap_anim).abs() < 0.01 { drag.gap_anim = target; }
                 }
+                // Glide the widget's tiles toward the (preview) order.
+                self.ease_tile_slots();
                 Task::none()
             }
             Message::TileDragEnd => {
@@ -1507,6 +1541,7 @@ impl App {
                     "ram_details" => st.ram_show_details = on,
                     "net_down" => st.net_show_down = on,
                     "net_up" => st.net_show_up = on,
+                    "net_swap" => st.net_upload_first = on,
                     "disk_read" => st.disk_show_read = on,
                     "disk_write" => st.disk_show_write = on,
                     "clock_date" => st.clock_show_date = on,
@@ -2521,8 +2556,10 @@ impl App {
         let remote_warns: &[fluid_core::settings::TileWarning] =
             dev.map(|d| d.popout.warnings.as_slice()).unwrap_or(&[]);
 
-        let mut tiles: Vec<Element<'_, Message>> = Vec::new();
-        for name in self.current_tiles() {
+        // Build tiles in the STABLE committed order so element identity stays put
+        // while they glide; the eased slot in `tile_slots` does the repositioning.
+        let mut tiles: Vec<(String, Element<'_, Message>)> = Vec::new();
+        for name in self.current_tiles_base() {
             let w = if is_remote {
                 warn_view_for(remote_warns, &name, snap, self.flash_on)
             } else {
@@ -2540,12 +2577,34 @@ impl App {
                 "Clock" => tile::clock_tile(&self.settings, p, w),
                 _ => continue,
             };
-            tiles.push(el);
+            tiles.push((name, el));
         }
         let skin = style::skin_style(&self.settings.active_skin);
-        let body: Element<'_, Message> = match self.effective_orientation() {
-            Orientation::Vertical => column(tiles).spacing(skin.tile_spacing).into(),
-            Orientation::Horizontal => row(tiles).spacing(skin.tile_spacing).into(),
+        let vertical = matches!(self.effective_orientation(), Orientation::Vertical);
+        let body: Element<'_, Message> = if !self.tile_slots.is_empty() {
+            // Animated: place each tile absolutely at its eased slot so they slide
+            // to the new order (same 0.45 ease as the Settings drag).
+            let sc = self.settings.ui_scale;
+            let pitch = if vertical {
+                self.settings.tile_height * sc + skin.tile_spacing
+            } else {
+                self.settings.tile_width * sc + skin.tile_spacing
+            };
+            let layers: Vec<Element<'_, Message>> = tiles.into_iter().enumerate().map(|(i, (name, el))| {
+                let slot = self.tile_slots.get(&name).copied().unwrap_or(i as f32);
+                let off = slot * pitch;
+                let pad = if vertical {
+                    iced::Padding { top: off, right: 0.0, bottom: 0.0, left: 0.0 }
+                } else {
+                    iced::Padding { top: 0.0, right: 0.0, bottom: 0.0, left: off }
+                };
+                container(el).padding(pad).into()
+            }).collect();
+            iced::widget::Stack::with_children(layers).into()
+        } else if vertical {
+            column(tiles.into_iter().map(|(_, el)| el).collect::<Vec<_>>()).spacing(skin.tile_spacing).into()
+        } else {
+            row(tiles.into_iter().map(|(_, el)| el).collect::<Vec<_>>()).spacing(skin.tile_spacing).into()
         };
         let icon_btn = |label: &str, sz: u16, msg: Message| {
             // line_height 1.0 keeps the glyph's box ~= its font size so the gear
@@ -2652,7 +2711,10 @@ impl App {
                 }
                 _ => None,
             }));
-            // Drive the drop-gap glide even when the cursor is momentarily still.
+        }
+        // Drive the drop-gap glide even when the cursor is momentarily still, and
+        // keep ticking through the post-drop settle while tiles are still gliding.
+        if self.tile_drag.is_some() || !self.tile_slots.is_empty() {
             subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::DragAnimTick));
         }
         Subscription::batch(subs)

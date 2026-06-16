@@ -116,6 +116,8 @@ pub struct AppSettings {
     #[serde(default = "def_true")] pub ram_show_details: bool,
     #[serde(default = "def_true")] pub net_show_down: bool,
     #[serde(default = "def_true")] pub net_show_up: bool,
+    // When true, the upload line sits above the download line (default: download on top).
+    #[serde(default)] pub net_upload_first: bool,
     #[serde(default = "def_true")] pub disk_show_read: bool,
     #[serde(default = "def_true")] pub disk_show_write: bool,
     #[serde(default = "def_true")] pub clock_show_date: bool,
@@ -203,7 +205,7 @@ impl Default for AppSettings {
             cpu_show_name: true, cpu_show_temp: true, cpu_show_clock: true,
             gpu_show_name: true, gpu_show_temp: true, gpu_show_clock: false, gpu_show_vram: true,
             ram_show_speed: true, ram_show_details: true,
-            net_show_down: true, net_show_up: true,
+            net_show_down: true, net_show_up: true, net_upload_first: false,
             disk_show_read: true, disk_show_write: true,
             clock_show_date: true,
         }
