@@ -1051,11 +1051,12 @@ pub fn view<'a>(
     );
 
     let updates = container(updates_col)
-    .padding([8, 12])
+    .padding([10, 12])
     .width(Length::Fill)
+    .height(Length::Fill) // stretch to fill the Tools tab's remaining height
     .style(move |_| iced::widget::container::Style {
         background: Some(iced::Background::Color(p.tile)),
-        border: Border { radius: 6.0.into(), ..Border::default() },
+        border: Border { radius: 8.0.into(), ..Border::default() },
         ..Default::default()
     });
 
@@ -1140,7 +1141,7 @@ pub fn view<'a>(
         Space::with_height(10),
         sh("Updates", "Check for and install new versions of Fluxid."),
         updates,
-    ].spacing(8).into();
+    ].spacing(8).height(Length::Fill).into();
 
     // ════════════════════════════════════════════
     //  ASSEMBLY  (tabbed)
@@ -1201,7 +1202,11 @@ pub fn view<'a>(
     // Card surface is the theme bg (between the darker window and the lighter
     // tile-colored controls), so the controls/inputs inside keep their contrast
     // and outlines instead of going tile-on-tile and disappearing.
-    let active_pane = container(tab_panes.remove(active))
+    // Tools (index 2) fills the full height (grid pinned to the top, Updates card
+    // stretches to fill the rest); the other tabs keep their content vertically
+    // centred in the fixed-height window.
+    let is_tools = active == 2;
+    let mut active_pane = container(tab_panes.remove(active))
         .width(Length::Fill)
         .padding(16)
         .style(move |_| iced::widget::container::Style {
@@ -1210,13 +1215,16 @@ pub fn view<'a>(
             border: Border { radius: 18.0.into(), width: 1.0, color: hairline },
             ..Default::default()
         });
-    // Tabs pinned to the top; the active card is vertically centred in the
-    // remaining space so the (fixed-height) window's leftover room is split
-    // evenly above and below it.
+    if is_tools { active_pane = active_pane.height(Length::Fill); }
+    let pane_slot = if is_tools {
+        container(active_pane).width(Length::Fill).height(Length::Fill)
+    } else {
+        container(active_pane).width(Length::Fill).height(Length::Fill).center_y(Length::Fill)
+    };
     let columns = column![
         strip_bar,
         Space::with_height(12),
-        container(active_pane).width(Length::Fill).height(Length::Fill).center_y(Length::Fill),
+        pane_slot,
     ]
     .width(Length::Fill)
     .height(Length::Fill);
