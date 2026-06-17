@@ -186,9 +186,9 @@ cd Flux
 # Run the widget directly
 cargo run -p flux-widget --release
 
-# Build the distributable installer (widget + embedded payload + checksum)
-powershell -ExecutionPolicy Bypass -File scripts\Build-Setup.ps1
-# -> dist\flux-setup-v<version>.exe
+# Build the widget and the installer
+cargo build -p flux-widget -p flux-setup --release
+# -> target\release\flux.exe  and  target\release\flux-setup.exe
 ```
 
 ---
