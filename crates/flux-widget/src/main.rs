@@ -576,8 +576,11 @@ struct TileDrag {
 
 // Logical row PITCH in the Settings tile list (header + divider spacing) —
 // the recessed drop-well height and the cursor-delta → slot math key off this.
-// Measured from the rendered list (~65px), not the bare header height.
-const TILE_ROW_H: f32 = 65.0;
+// MUST match the rendered row pitch: the header is pinned to FLOAT_H (44px) in
+// settings_panel.rs plus a 1px divider = 45px. When this was larger than the
+// real pitch, each slot needed extra cursor travel, making the bottom slot very
+// hard to reach.
+const TILE_ROW_H: f32 = 45.0;
 
 struct App {
     settings: AppSettings,
