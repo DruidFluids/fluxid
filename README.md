@@ -8,7 +8,7 @@
 
 Real-time CPU, GPU, RAM, network, and disk stats — always on your desktop, never in your way.
 
-[![Release](https://img.shields.io/badge/release-v1.0.17-5898a0)](../../releases)
+[![Release](https://img.shields.io/badge/release-v1.0.18-5898a0)](../../releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)](#requirements)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20iced-dea584)](https://iced.rs)
 [![License](https://img.shields.io/badge/license-Personal%20Use-c0392b)](LICENSE)
@@ -26,7 +26,7 @@ Real-time CPU, GPU, RAM, network, and disk stats — always on your desktop, nev
 Most system monitors are either heavyweight dashboards or cryptic taskbar numbers. Flux sits in between — a clean, themeable widget that shows exactly what you care about at a glance, with virtually zero overhead.
 
 - **One tiny executable** — no .NET runtime, no browser engine; the widget polls hardware in-process and renders on the GPU. (Turning on optional CPU die-temperature adds a small signed-driver helper service — nothing else runs in the background.)
-- **Beautiful by default, yours in two clicks** — a library of skins, 100+ color presets, full font control, or roll the dice and let it surprise you.
+- **Beautiful by default, yours in two clicks** — a library of skins, 100+ color presets, full font control, or roll the <img src="docs/images/die.svg" height="15" alt="randomize"> and let it surprise you.
 - **Built for gamers** — Game Mode snaps the widget to a corner with one hotkey, even in fullscreen.
 - **Remote monitoring** — watch your other PCs' stats from one desktop over your LAN.
 - **Rust, for reach** — a from-scratch rewrite of the original C# app, built for broad hardware coverage and a path to Linux/macOS.
@@ -59,7 +59,7 @@ The appearance engine has three independent layers:
 | **Colors** | 5-color palette (background, tile, accent, text, muted) | 100+ presets |
 | **Preset Themes** | One-click skin + color combos | Curated library + downloadable packs |
 
-Hit the dice for a random look, undo if you don't like it, and save your favorites to 5 quick slots. Import and export themes as share codes to swap with others, and browse downloadable theme packs from the built-in Theme Store.
+Hit the <img src="docs/images/die.svg" height="15" alt="randomize"> for a random look, undo if you don't like it, and save your favorites to 5 quick slots. Import and export themes as share codes to swap with others, and browse downloadable theme packs from the built-in Theme Store.
 
 <div align="center">
 <img src="docs/images/settings-appearance.png" alt="Appearance settings" width="420">
@@ -138,12 +138,24 @@ Run Flux on multiple machines and watch them all from one desktop. TCP over TLS 
 <img src="docs/images/remote-monitoring.png" alt="Remote monitoring" width="420">
 </div>
 
+Watching another machine — here a headless server:
+
+<div align="center">
+<img src="docs/images/remote-widget.png" alt="Watching a remote server" width="200">
+</div>
+
 ### Tools & updates
 
 The Tools tab gathers Alerts, Game Mode, Utilities, and the Remote launcher in one place, alongside an Updates panel with the latest changelog.
 
 <div align="center">
 <img src="docs/images/settings-tools.png" alt="Tools settings" width="420">
+</div>
+
+When an update is available, the widget's settings gear glows to flag it:
+
+<div align="center">
+<img src="docs/images/widget-update.png" alt="Update available indicator" width="200">
 </div>
 
 ### Quality of life
@@ -165,7 +177,7 @@ Flux is built with security-conscious defaults:
 - **No telemetry** — the app makes zero analytics calls. The only outbound connections are the optional update check, the optional PawnIO driver download (user-initiated), and LAN-only remote monitoring.
 - **PawnIO is never bundled** — the CPU temperature driver is downloaded on demand from its [official GitHub release](https://github.com/namazso/PawnIO.Setup/releases), and is never redistributed here.
 - **Verified updates** — the in-app updater refuses to run a downloaded installer unless its SHA-256 matches a checksum published alongside the release.
-- **Scanned on VirusTotal** — every release is scanned and the result is linked in its notes. v1.0.17: **[0 / 69](https://www.virustotal.com/gui/file/07470a668f0bb8dce2adbb33ce434720bc2187b6745177753a4dcf730ebe0016)** (clean).
+- **Scanned on VirusTotal** — every release is scanned and the result is linked in its notes. v1.0.18: **[0 / 70](https://www.virustotal.com/gui/file/423a5f30c091eea3e029ac40ed9966f63ffe635784c6e2315f135686bea0b01d)** (clean).
 - **Unsigned build** — the installer is not code-signed, so Windows SmartScreen shows a one-time prompt. Verify any download against the `.sha256` published with each release before running it.
 - **Settings stay local** — all configuration lives in `%APPDATA%\Flux`. Nothing is sent anywhere.
 - **Source-available** — every line is in this repo for inspection (see [License](#license)).

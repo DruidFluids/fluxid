@@ -109,6 +109,40 @@ fn logo_rgba() -> Option<(Vec<u8>, u32, u32)> {
     Some((img.into_raw(), w, h))
 }
 
+// Fabricated remote "server" snapshot for the `--shot remote-widget` README demo
+// (server-class hardware so the remote-monitoring view looks like a real box).
+#[cfg(windows)]
+fn demo_server_snapshot() -> flux_core::sensor_data::SensorSnapshot {
+    use flux_core::sensor_data::*;
+    SensorSnapshot {
+        cpu: CpuData {
+            name: "AMD EPYC 7763 64-Core".into(),
+            usage_percent: 27.0, temperature_c: Some(52.0), clock_mhz: Some(2845.0),
+            core_count: 64, thread_count: 128, per_core_usage: Vec::new(),
+        },
+        gpu: GpuData {
+            name: "NVIDIA RTX A4000".into(),
+            usage_percent: 14.0, temperature_c: Some(43.0), clock_mhz: Some(1560.0),
+            vram_used_mb: 4200.0, vram_total_mb: 16384.0, fan_rpm: None,
+        },
+        ram: RamData {
+            used_mb: 96256.0, total_mb: 262144.0, usage_percent: 36.7,
+            speed_mhz: 3200, mem_type: "DDR4 ECC".into(),
+        },
+        disk: DiskData { drives: vec![DriveInfo {
+            name: "Samsung PM9A3".into(), mount: "D:".into(),
+            used_gb: 8240.0, total_gb: 15360.0,
+            read_bytes_sec: 184_000_000, write_bytes_sec: 96_000_000,
+        }] },
+        network: NetworkData { interfaces: vec![NetInterface {
+            name: "eth0".into(),
+            upload_bytes_sec: 48_000_000, download_bytes_sec: 132_000_000,
+            total_uploaded: 0, total_downloaded: 0,
+        }] },
+        timestamp: 0,
+    }
+}
+
 fn make_tray_icon() -> tray_icon::Icon {
     if let Some((rgba, w, h)) = logo_rgba() {
         if let Ok(icon) = tray_icon::Icon::from_rgba(rgba, w, h) {
@@ -922,36 +956,69 @@ impl App {
         use flux_core::settings::UpdateMode;
         let mode = app.settings.update_check_mode.clone();
         let mut batch = vec![open_task];
+        // The `--shot widget-update` demo forces an "update available" state; skip the
+        // real update check so it doesn't immediately clear it before the capture.
+        let is_update_shot = {
+            let a: Vec<String> = std::env::args().collect();
+            a.iter().position(|x| x == "--shot").and_then(|i| a.get(i + 1)).map(|s| s == "widget-update").unwrap_or(false)
+        };
         // Off makes no update network calls at all. Every other mode fetches the
         // latest release notes so the Updates changelog is ready to read.
-        if mode != UpdateMode::Off {
+        if mode != UpdateMode::Off && !is_update_shot {
             batch.push(Task::perform(updates::latest_release(), Message::LatestReleaseDone));
         }
         // Auto / Auto-install additionally run a version check on launch.
-        if matches!(mode, UpdateMode::Auto | UpdateMode::AutoInstall) {
+        if matches!(mode, UpdateMode::Auto | UpdateMode::AutoInstall) && !is_update_shot {
             batch.push(Task::done(Message::CheckForUpdates));
         }
         // Hidden `--shot <name>` (screenshot / visual QA): open Settings on a given
         // tab, or a specific dialog, at launch so README captures are reproducible.
         // Harmless in normal use — no flag, no effect. Mirrors flux-setup's --page.
         let args: Vec<String> = std::env::args().collect();
-        if let Some(name) = args.iter().position(|a| a == "--shot").and_then(|i| args.get(i + 1)) {
-            let (tab, msg): (usize, Option<Message>) = match name.as_str() {
-                "tiles"      => (0, Some(Message::OpenSettings)),
-                "appearance" => (1, Some(Message::OpenSettings)),
-                "tools"      => (2, Some(Message::OpenSettings)),
-                "alerts"     => (2, Some(Message::OpenAlerts)),
-                "game"       => (2, Some(Message::OpenGameMode)),
-                "utilities"  => (2, Some(Message::OpenUtilities)),
-                "remote"     => (2, Some(Message::OpenRemote)),
-                "help"       => (0, Some(Message::OpenHelp)),
-                "cpu"        => (0, Some(Message::OpenCpuDriver)),
-                "themes"     => (1, Some(Message::OpenThemeStore)),
-                "skins"      => (1, Some(Message::OpenSkinPicker)),
-                _ => (0, None),
-            };
-            app.settings_tab = tab;
-            if let Some(m) = msg { batch.push(Task::done(m)); }
+        if let Some(name) = args.iter().position(|a| a == "--shot").and_then(|i| args.get(i + 1)).cloned() {
+            match name.as_str() {
+                // Widget-state demos (capture the "Flux Widget" window, no popup):
+                "remote-widget" => {
+                    // Inject a fabricated remote "server" device + snapshot so the
+                    // widget shows the device tabs and a remote machine's stats.
+                    let id = "demo-server".to_string();
+                    app.settings.remote_devices.push(flux_core::settings::RemoteDevice {
+                        id: id.clone(), name: "Server1".into(), host: "192.0.2.10".into(),
+                        port: 5199, key: "FM1:ExampleKeyOnly".into(), popout: Default::default(),
+                    });
+                    app.remote_snapshots.insert(id.clone(), demo_server_snapshot());
+                    app.remote_conn.insert(id.clone(), true);
+                    app.settings.show_remote_status_dot = true;
+                    app.widget_device = Some(id);
+                }
+                "widget-update" => {
+                    // Force the "update available" state so the gear pulses its dot.
+                    app.update_available = Some(updates::PendingUpdate {
+                        version: "1.0.18".into(),
+                        changelog: "## Highlights\n- Example pending update".into(),
+                        url: String::new(), sha256: None,
+                    });
+                }
+                // Settings tab / dialog shots (capture the "Flux" window):
+                other => {
+                    let (tab, msg): (usize, Option<Message>) = match other {
+                        "tiles"      => (0, Some(Message::OpenSettings)),
+                        "appearance" => (1, Some(Message::OpenSettings)),
+                        "tools"      => (2, Some(Message::OpenSettings)),
+                        "alerts"     => (2, Some(Message::OpenAlerts)),
+                        "game"       => (2, Some(Message::OpenGameMode)),
+                        "utilities"  => (2, Some(Message::OpenUtilities)),
+                        "remote"     => (2, Some(Message::OpenRemote)),
+                        "help"       => (0, Some(Message::OpenHelp)),
+                        "cpu"        => (0, Some(Message::OpenCpuDriver)),
+                        "themes"     => (1, Some(Message::OpenThemeStore)),
+                        "skins"      => (1, Some(Message::OpenSkinPicker)),
+                        _ => (0, None),
+                    };
+                    app.settings_tab = tab;
+                    if let Some(m) = msg { batch.push(Task::done(m)); }
+                }
+            }
         }
         (app, Task::batch(batch))
     }
@@ -2932,9 +2999,14 @@ impl App {
         let gear_el: Element<'_, Message> = if update_waiting {
             // A glowing accent dot in the gear's centre that slow-blinks (~2.2s)
             // while an update is waiting — driven by the free-running pulse clock.
-            let phase = 0.5 + 0.5 * (self.pulse_clock.elapsed().as_secs_f32() * std::f32::consts::TAU / 2.2).sin(); // 0..1
+            // Pin to peak + enlarge the dot in --shot mode so it reads in a still capture.
+            let shot = std::env::args().any(|a| a == "--shot");
+            let phase = if shot { 1.0 } else {
+                0.5 + 0.5 * (self.pulse_clock.elapsed().as_secs_f32() * std::f32::consts::TAU / 2.2).sin()
+            }; // 0..1
             let a = 0.4 + 0.6 * phase; // 0.4..1.0
-            let dot = container(Space::new(Length::Fixed(4.0), Length::Fixed(4.0)))
+            let dsz = if shot { 7.0 } else { 4.0 };
+            let dot = container(Space::new(Length::Fixed(dsz), Length::Fixed(dsz)))
                 .style(move |_| iced::widget::container::Style {
                     background: Some(iced::Background::Color(Color { a, ..p.accent })),
                     border: Border { radius: 2.0.into(), ..Default::default() },

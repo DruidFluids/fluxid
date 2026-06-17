@@ -1193,7 +1193,7 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
 
 // ── Theme Store (bundled game theme packs) ───────────────────────────────────
 
-pub const THEME_STORE_SIZE: iced::Size = iced::Size::new(460.0, 600.0);
+pub const THEME_STORE_SIZE: iced::Size = iced::Size::new(580.0, 600.0);
 
 // A rounded colour chip (12px, matches the C# store swatches).
 fn chip<'a>(hex: &str, p: Palette) -> Element<'a, Message> {
@@ -1284,41 +1284,38 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
     let hint = text("Open a pack to install or remove its themes. Installed themes appear in Choose a Theme.")
         .size(10).style(move |_| iced::widget::text::Style { color: Some(Color { a: 0.7, ..p.muted }) });
 
-    let card = |pi: usize| -> Element<'a, Message> {
+    // Compact single-column list rows: name + color chips + count + Install all + Browse.
+    let row_item = |pi: usize| -> Element<'a, Message> {
         let pack = &packs[pi];
         let installed_n = pack.themes.iter().filter(|t| is_installed(&t.name)).count();
         let all_in = installed_n == pack.themes.len();
-        let status: Element<'a, Message> = if installed_n == 0 {
-            status_pill("Available".into(), false, p)
-        } else if all_in {
-            status_pill("Installed".into(), true, p)
-        } else {
-            status_pill(format!("{} / {}", installed_n, pack.themes.len()), true, p)
-        };
         let mut sw = row![].spacing(3);
         for t in pack.themes.iter().take(6) { sw = sw.push(chip(&t.accent, p)); }
-        // One-click "Install" (all themes in the pack — reuses ThemeStoreTogglePack)
-        // and "Browse" (open the pack's theme list), stacked under the status pill.
-        let install_btn = button(
-            text(if all_in { "Installed \u{2713}" } else { "Install all" }).size(10)
-        )
-        .width(Length::Fixed(88.0))
-        .padding(iced::Padding { top: 3.0, right: 8.0, bottom: 3.0, left: 8.0 })
-        .style(move |_: &iced::Theme, st: button::Status| {
-            let hover = matches!(st, button::Status::Hovered);
-            button::Style {
-                background: Some(iced::Background::Color(
-                    if all_in { Color::TRANSPARENT } else if hover { Color { a: 0.82, ..p.accent } } else { p.accent }
-                )),
-                border: Border { radius: 6.0.into(), ..Border::default() },
-                text_color: if all_in { p.muted } else { Color::WHITE },
-                ..Default::default()
-            }
-        })
-        .on_press_maybe(if all_in { None } else { Some(Message::ThemeStoreTogglePack(pi, true)) });
-        let browse_btn = button(text("Browse").size(10))
+        let count_txt = if all_in {
+            "Installed".to_string()
+        } else if installed_n > 0 {
+            format!("{}/{} Installed", installed_n, pack.themes.len())
+        } else {
+            format!("{} themes", pack.themes.len())
+        };
+        let install_btn = button(text(if all_in { "Installed \u{2713}" } else { "Install all" }).size(10))
             .width(Length::Fixed(88.0))
-            .padding(iced::Padding { top: 3.0, right: 8.0, bottom: 3.0, left: 8.0 })
+            .padding(iced::Padding { top: 4.0, right: 8.0, bottom: 4.0, left: 8.0 })
+            .style(move |_: &iced::Theme, st: button::Status| {
+                let hover = matches!(st, button::Status::Hovered);
+                button::Style {
+                    background: Some(iced::Background::Color(
+                        if all_in { Color::TRANSPARENT } else if hover { Color { a: 0.82, ..p.accent } } else { p.accent }
+                    )),
+                    border: Border { radius: 6.0.into(), ..Border::default() },
+                    text_color: if all_in { p.muted } else { Color::WHITE },
+                    ..Default::default()
+                }
+            })
+            .on_press_maybe(if all_in { None } else { Some(Message::ThemeStoreTogglePack(pi, true)) });
+        let browse_btn = button(text("Browse").size(10))
+            .width(Length::Fixed(82.0))
+            .padding(iced::Padding { top: 4.0, right: 8.0, bottom: 4.0, left: 8.0 })
             .style(move |_: &iced::Theme, st: button::Status| {
                 let hover = matches!(st, button::Status::Hovered);
                 button::Style {
@@ -1329,37 +1326,34 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
                 }
             })
             .on_press(Message::ThemeStoreOpenFranchise(pi));
-        let actions = column![status, install_btn, browse_btn].spacing(4).align_x(iced::Alignment::End);
-        container(column![
+        container(
             row![
-                text(pack.franchise.clone()).size(11)
+                text(pack.franchise.clone()).size(12)
                     .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-                    .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+                    .style(move |_| iced::widget::text::Style { color: Some(p.text) })
+                    .width(Length::Fixed(132.0)),
+                sw,
                 Space::with_width(Length::Fill),
-                actions,
-            ].align_y(iced::Alignment::Start),
-            text(format!("{} themes", pack.themes.len())).size(9)
-                .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
-            Space::with_height(6),
-            sw,
-        ].spacing(2))
+                text(count_txt).size(9)
+                    .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
+                    .width(Length::Fixed(94.0)),
+                install_btn,
+                browse_btn,
+            ].align_y(iced::Alignment::Center).spacing(8)
+        )
         .width(Length::Fill)
-        .padding(10)
+        .padding(iced::Padding { top: 6.0, right: 10.0, bottom: 6.0, left: 10.0 })
         .style(move |_: &iced::Theme| iced::widget::container::Style {
             background: Some(iced::Background::Color(p.tile)),
-            border: Border { radius: 8.0.into(), ..Border::default() },
+            border: Border { radius: 7.0.into(), ..Border::default() },
             ..Default::default()
         })
         .into()
     };
 
-    let mut grid = column![].spacing(6);
-    let mut i = 0;
-    while i < packs.len() {
-        let left = card(i);
-        let right: Element<'a, Message> = if i + 1 < packs.len() { card(i + 1) } else { Space::with_width(Length::Fill).into() };
-        grid = grid.push(row![left, right].spacing(6));
-        i += 2;
+    let mut grid = column![].spacing(4);
+    for pi in 0..packs.len() {
+        grid = grid.push(row_item(pi));
     }
 
     let body = column![
@@ -1381,10 +1375,19 @@ fn franchise_detail<'a>(pi: usize, settings: &AppSettings, sel: &std::collection
     // Themes ticked for "Install selected" (only ones not already installed).
     let sel_n = pack.themes.iter().filter(|t| !is_installed(&t.name) && sel.contains(&t.name)).count();
 
-    let back = button(text("\u{2039} All packs".to_string()).size(11)
+    let back = button(text("\u{2039}  |  All Packs".to_string()).size(11)
+        .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
         .style(move |_| iced::widget::text::Style { color: Some(p.accent) }))
-        .padding(iced::Padding { top: 3.0, right: 8.0, bottom: 3.0, left: 0.0 })
-        .style(|_, _| button::Style { background: None, ..Default::default() })
+        .padding(iced::Padding { top: 4.0, right: 12.0, bottom: 4.0, left: 12.0 })
+        .style(move |_: &iced::Theme, st: button::Status| {
+            let hover = matches!(st, button::Status::Hovered);
+            button::Style {
+                background: Some(iced::Background::Color(if hover { Color { a: 0.12, ..p.accent } } else { Color::TRANSPARENT })),
+                border: Border { radius: 6.0.into(), width: 1.0, color: Color { a: 0.45, ..p.accent } },
+                text_color: p.accent,
+                ..Default::default()
+            }
+        })
         .on_press(Message::ThemeStoreBack);
 
     let header = row![
@@ -1447,7 +1450,8 @@ fn franchise_detail<'a>(pi: usize, settings: &AppSettings, sel: &std::collection
                 Space::with_width(10),
                 text(label).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
                 Space::with_width(Length::Fill),
-                status_pill(if installed { "Installed".into() } else { "Available".into() }, installed, p),
+                // Only badge the installed ones — "Available" is implied for the rest.
+                if installed { status_pill("Installed".into(), true, p) } else { Space::with_width(0).into() },
                 Space::with_width(8),
                 action_btn(installed, Message::ThemeStoreToggleTheme(pi, ti, !installed), p),
             ].spacing(3).align_y(iced::Alignment::Center))
