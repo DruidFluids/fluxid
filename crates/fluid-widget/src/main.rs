@@ -600,6 +600,9 @@ struct App {
     // Set on a post-update launch so the "Updated to vX" notice opens once the
     // release notes have been fetched.
     pending_update_popup: Option<String>,
+    // The version we updated to this session (from the post-update marker). Keeps
+    // the green "Updated to vX" confirmation showing even after a "Check now".
+    just_updated_version: Option<String>,
     // "Reset all settings" checkbox state in the post-update notice (default off).
     update_reset_checked: bool,
     // Latest GitHub release notes (version, body) shown in the Updates card.
@@ -791,7 +794,7 @@ impl App {
             blocklist_editor: iced::widget::text_editor::Content::with_text(&blocklist_text),
             blocklist_status: String::new(),
             update_checking: false, update_status: String::new(), update_status_kind: 0, update_available: None,
-            update_progress: None, pending_update_popup: None, update_reset_checked: false,
+            update_progress: None, pending_update_popup: None, just_updated_version: None, update_reset_checked: false,
             latest_changelog: None,
             updates_show_info: false,
             last_window_open: None,
@@ -823,7 +826,8 @@ impl App {
             if ver == env!("CARGO_PKG_VERSION") {
                 app.update_status = format!("Updated to v{ver} \u{2713}");
                 app.update_status_kind = 1;
-                app.pending_update_popup = Some(ver);
+                app.pending_update_popup = Some(ver.clone());
+                app.just_updated_version = Some(ver);
             }
         }
 
@@ -2189,7 +2193,16 @@ impl App {
                 self.settings.last_update_check = Some(chrono::Local::now().to_rfc3339());
                 let _ = self.settings.save();
                 match result {
-                    updates::CheckResult::UpToDate => { self.update_status = "Up to date".into(); self.update_status_kind = 1; }
+                    updates::CheckResult::UpToDate => {
+                        // Keep celebrating a just-completed update: if we updated
+                        // this session, a "Check now" should still confirm the new
+                        // version rather than fall back to a bland "Up to date".
+                        self.update_status = match &self.just_updated_version {
+                            Some(v) => format!("Updated to v{v} \u{2713}"),
+                            None => "Up to date".into(),
+                        };
+                        self.update_status_kind = 1;
+                    }
                     updates::CheckResult::Available(mut update) => {
                         self.update_status = "Update available!".into();
                         self.update_status_kind = 1;
