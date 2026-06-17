@@ -156,7 +156,7 @@ impl Default for AppSettings {
             always_on_top: true,
             round_corners: true,
             update_interval_ms: 1500,
-            run_at_startup: false,
+            run_at_startup: true,
             ui_scale: 1.0,
             snap_to_windows: true,
             click_through_hotkey: String::new(),

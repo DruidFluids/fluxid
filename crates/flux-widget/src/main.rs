@@ -294,6 +294,25 @@ fn set_run_at_startup(on: bool) {
 #[cfg(not(target_os = "windows"))]
 fn set_run_at_startup(_: bool) {}
 
+/// Whether the HKCU Run entry for Flux currently exists — the ground truth for
+/// "run at startup". The widget mirrors this into its settings on launch so the
+/// toggle reflects reality (the installer sets it on by default) instead of a
+/// stale settings flag.
+#[cfg(target_os = "windows")]
+fn run_at_startup_enabled() -> bool {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+        .and_then(|k| k.get_value::<String, _>("Flux"))
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+}
+#[cfg(not(target_os = "windows"))]
+fn run_at_startup_enabled() -> bool {
+    false
+}
+
 // iced/winit doesn't expose raw HWND access. The daemon title fn runs before the
 // window is registered in our state, so the widget keeps the default
 // "Flux" title. We resolve the widget HWND once (it's the only such
@@ -801,6 +820,10 @@ enum Message {
 impl App {
     fn new() -> (Self, Task<Message>) {
         let mut settings = AppSettings::load().unwrap_or_default();
+        // The "run at startup" toggle reflects the actual HKCU Run entry (which the
+        // installer enables by default), not a stale settings flag — so it shows the
+        // true state and honours an install-time --no-startup.
+        settings.run_at_startup = run_at_startup_enabled();
         // Mirror the rounded-corners flag for window chrome (dialogs read it).
         style::set_round_corners(settings.round_corners);
         // Assign stable ids to any devices loaded from an older config.
