@@ -1,4 +1,4 @@
-# fluxid (fluxid) — Session Log
+# Flux (Flux) — Session Log
 
 ## Session: 2026-06-15 (overnight autonomous polish)
 
@@ -8,9 +8,9 @@ repo is a **mature, feature-complete product**:
 
 - `cargo build` — **clean** (0 errors).
 - `cargo clippy --workspace` — **clean** (0 warnings).
-- `target\debug\fluxid.exe` — **launches**, borderless always-on-top window
-  ("fluxid Widget"), no panics on stderr. (Binary is `fluxid`, not
-  `fluxid`.)
+- `target\debug\flux.exe` — **launches**, borderless always-on-top window
+  ("Flux Widget"), no panics on stderr. (Binary is `Flux`, not
+  `Flux`.)
 
 Everything in the brief's Phases 1–7 already exists and is polished:
 
@@ -27,11 +27,11 @@ Everything in the brief's Phases 1–7 already exists and is polished:
 - **Game mode**, **warnings system** (flash + temp gradient), **global
   hotkeys**, **edge + window snapping**, **opacity**, **UI scale**,
   **run-at-startup**, **click-through**, **updates checker**, **remote
-  monitoring** (fluid-remote crate, popouts per device), **optional PawnIO CPU
+  monitoring** (flux-remote crate, popouts per device), **optional PawnIO CPU
   temp driver** install flow.
 
-Crates: fluid-core, fluid-sensor, fluid-ipc, fluid-remote, fluid-widget
-(main bin `fluxid`), fluid-service, fluid-setup. ~8,000 lines of Rust.
+Crates: flux-core, flux-sensor, flux-ipc, flux-remote, flux-widget
+(main bin `Flux`), flux-service, flux-setup. ~8,000 lines of Rust.
 
 iced 0.13, sysinfo 0.34, serde/serde_json, tray-icon, windows crate.
 
@@ -56,7 +56,7 @@ correctness + polish improvements** verified by reasoning and `cargo build` /
   non-finite sensor values; `sub_header` clips long hardware/disk-model names to
   one line (`Wrapping::None`) instead of word-wrapping into the fixed-height tile.
 
-All changes verified: `cargo clippy -p fluid-widget` clean, app relaunches OK.
+All changes verified: `cargo clippy -p flux-widget` clean, app relaunches OK.
 
 ### Completed (round 2 — found via main.rs / settings_panel.rs / popups.rs review agents)
 - [x] **main.rs `ResetDefaults`**: was leaving the live `RemoteManager` polling
@@ -76,7 +76,7 @@ All changes verified: `cargo clippy -p fluid-widget` clean, app relaunches OK.
   (`container(body).style(default)` renders identically). Now genuinely fades the
   card's text/muted/accent (alpha ×0.4) when the alert is off, a real inactive cue.
 
-All verified: `cargo clippy -p fluid-widget` clean, app relaunches OK.
+All verified: `cargo clippy -p flux-widget` clean, app relaunches OK.
 
 ### Reviewed and confirmed NOT bugs (by the review agents — recorded so they
 ### aren't re-investigated): opacity %↔0..1 conversions, all per-tile field
@@ -144,9 +144,9 @@ process (widget lives on a 150%-scaled monitor).
 
 ## Session: 2026-06-15 (custom installer)
 
-Built out `fluid-setup` from a do-nothing stub wizard into a working
+Built out `flux-setup` from a do-nothing stub wizard into a working
 self-contained custom installer. Key realisation: the Rust payload is a **single
-embedded-asset exe** — `fluxid.exe` statically bundles all 25 themes, fonts,
+embedded-asset exe** — `flux.exe` statically bundles all 25 themes, fonts,
 icon, and PawnIO `.bin` modules via `include_bytes!`, the widget polls sensors
 in-process (no Windows service), and there's no .NET runtime. So unlike the C#
 `Fluid.Setup` (service + .NET check + admin), the installer's whole job is: copy
@@ -157,12 +157,12 @@ one exe, make shortcuts, register the uninstaller, apply opt-ins, launch.
   `--apply <flags>` → headless install engine (also the elevated worker);
   `--uninstall <flags>` → headless uninstall engine (registered as the ARP
   uninstall command, a copy of setup placed at `<dir>\uninstall.exe`).
-- **Payload embed** (`build.rs` + `payload.rs`): reads `FLUXID_PAYLOAD` env var
-  → copies `fluxid.exe` to `OUT_DIR/payload.bin` for `include_bytes!`; unset →
+- **Payload embed** (`build.rs` + `payload.rs`): reads `FLUX_PAYLOAD` env var
+  → copies `flux.exe` to `OUT_DIR/payload.bin` for `include_bytes!`; unset →
   0-byte placeholder so plain `cargo build --workspace` stays green (installer
   detects empty payload and refuses to install — "dev build").
 - **Per-user vs all-users** (`engine.rs::Scope`): per-user → `%LOCALAPPDATA%\
-  fluxid`, HKCU, no UAC; all-users → `%ProgramFiles%\fluxid`, HKLM, needs
+  Flux`, HKCU, no UAC; all-users → `%ProgramFiles%\Flux`, HKLM, needs
   elevation → the unelevated GUI relaunches itself `--apply` with the `runas`
   verb (`ShellExecuteExW`) and waits, then launches the widget unelevated.
 - **Operations** (`engine.rs`): copy exe, copy self→uninstall.exe, Start Menu
@@ -170,15 +170,15 @@ one exe, make shortcuts, register the uninstaller, apply opt-ins, launch.
   registry entry (DisplayName/Version/Publisher/DisplayIcon/InstallLocation/
   Uninstall+QuietUninstallString/EstimatedSize/NoModify/NoRepair), HKCU `Run`
   for startup, launch-on-finish. Uninstall reverses all of it (taskkill /F
-  fluxid first, like the C#; optional `%APPDATA%\fluxid` settings wipe; defers
+  Flux first, like the C#; optional `%APPDATA%\Flux` settings wipe; defers
   install-dir removal — which holds the running uninstaller — to a detached
   `cmd /C ping … & rmdir`).
 - **Deferred to in-app (intentional, no divergent flows):** PawnIO driver (has a
   secure verified opt-in in `cpu_driver.rs`) and the remote firewall rule.
 
 ### Packaging
-- `scripts/Build-Setup.ps1`: release-builds fluxid → sets `FLUXID_PAYLOAD` →
-  release-builds fluid-setup (embeds) → copies to `dist\fluxid-setup-v<ver>
+- `scripts/Build-Setup.ps1`: release-builds Flux → sets `FLUX_PAYLOAD` →
+  release-builds flux-setup (embeds) → copies to `dist\flux-setup-v<ver>
   .exe` + writes a `.sha256` sidecar (release flow publishes checksums). `dist/`
   gitignored. Output verified: single 20.3 MB self-contained installer.
 
@@ -225,15 +225,15 @@ one exe, make shortcuts, register the uninstaller, apply opt-ins, launch.
   iced `Theme` palette + container/card/title/muted/button styles; options on a
   rounded tile-colored card; accent headings; primary(accent)/secondary buttons.
   Window/taskbar **icon** = the widget's logo PNG (copied to
-  `crates/fluid-setup/assets/icon.png`, decoded via the `image` crate, set with
+  `crates/flux-setup/assets/icon.png`, decoded via the `image` crate, set with
   `iced::window::icon::from_rgba`).
 - **Docs:** top-level `README.md` (intro + Install/silent/uninstall + build +
   workspace table) and `docs/INSTALLER.md` (quick start, scope table, full
   switch reference with examples, what-gets-created layout, uninstall, build
   steps, architecture, signing/SmartScreen). Fixed ARP `URLInfoAbout` to the
-  real remote `DruidFluids/fluxid`.
+  real remote `DruidFluids/Flux`.
 - Verified: `--apply --no-desktop --no-launch` → start-menu yes, desktop
-  skipped, startup on, fluxid not launched; silent uninstall full cleanup;
+  skipped, startup on, Flux not launched; silent uninstall full cleanup;
   `--help` + `/?` print correctly; themed GUI launches without crashing.
 
 ### Round 3 — redesigned wizard to a centered, modern layout (screenshot-verified)
@@ -244,7 +244,7 @@ step indicator on top → centered content → divider → centered button pair.
   container styles, white `heading`, `accent_text`. Window 500×500, logo icon.
 - `main.rs`: `frame(step, content, buttons, center)` assembles every page;
   `step_bar` (4 accent segments). Pages return `(content, buttons)`. Welcome =
-  badge + "fluxid" + version + MIT line; Options; Installing; Done = ✓ checklist.
+  badge + "Flux" + version + MIT line; Options; Installing; Done = ✓ checklist.
 - Hidden `--page welcome|options|installing|done` to open the wizard on a page
   (QA/screenshots); Done injects a sample outcome.
 - **Captured all 4 pages via DPI-aware PrintWindow(PW_RENDERFULLCONTENT)** and
@@ -259,16 +259,16 @@ step indicator on top → centered content → divider → centered button pair.
 
 ### Round 4 — fix black console window on launch (found during install review)
 User saw a big black window (912×517, title = the exe path) appear next to the
-widget after installing. Diagnosed by enumerating fluxid's visible windows: it
-had the tile (146×614 "fluxid Widget"), the 15×15 tray helper, AND a 912×517
+widget after installing. Diagnosed by enumerating Flux's visible windows: it
+had the tile (146×614 "Flux Widget"), the 15×15 tray helper, AND a 912×517
 decorated window titled with the exe path — i.e. a **Windows console**.
-`fluid-widget` had no `windows_subsystem` attribute, so fluxid.exe was a
+`flux-widget` had no `windows_subsystem` attribute, so flux.exe was a
 console-subsystem app; launching it (installer, Start Menu, desktop shortcut)
 spawned a console. Never noticed in dev because `cargo run` already owns a
 console. Fix: `#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem
-= "windows")]` on fluid-widget/src/main.rs (debug keeps the console for tracing).
+= "windows")]` on flux-widget/src/main.rs (debug keeps the console for tracing).
 Verified: rebuilt release, installed exe PE subsystem = 2 (GUI), and the running
-installed fluxid now shows only the tile + tray — no console.
+installed Flux now shows only the tile + tray — no console.
 
 ### Round 5 — widget top bar slimmed + symmetric rounded corners
 User: shrink the top chrome bar (gear + X) — too much empty space; and round the
@@ -289,7 +289,7 @@ TOP corners to match the rounded bottom.
 After the inset hack didn't actually round the frame (objective white-backdrop +
 accent-border captures proved the iced root container renders SQUARE top corners
 no matter what — the rounded look was the *tiles*), switched to OS-level rounding.
-- **Round corners = Appearance toggle** (`round_corners` bool in fluid-core
+- **Round corners = Appearance toggle** (`round_corners` bool in flux-core
   settings, default true). Applied via **DwmSetWindowAttribute
   (DWMWA_WINDOW_CORNER_PREFERENCE)** in `set_window_rounded()` — reliable Win11
   rounding of the actual window. Applied on `WindowOpened`/Widget and on toggle
@@ -301,22 +301,22 @@ no matter what — the rounded look was the *tiles*), switched to OS-level round
   leading) overflowed the row and got clipped (the size-12 ✕ survived). Fix:
   `text.line_height(Relative(1.0))` on the icon glyphs + header height 16.
 - **Exe icon**: Rust binaries ship no icon resource → blank icon in Explorer/
-  taskbar. Added `crates/fluid-widget/build.rs` that builds a multi-size
-  `fluxid.ico` from `assets/icon.png` (256²) via the `ico` crate and embeds it
+  taskbar. Added `crates/flux-widget/build.rs` that builds a multi-size
+  `Flux.ico` from `assets/icon.png` (256²) via the `ico` crate and embeds it
   with `winresource` (best-effort: warns + continues if rc.exe is absent).
   Verified ExtractAssociatedIcon returns an icon.
 - **Tooltips** opened under the cursor (Position::Top flips down when the gear/X
   sit flush at the widget top). `with_tip` now uses `Position::Right` + `.gap(8)`
   so they open cleanly to the side.
 - **Uninstall removes the firewall rule** (`engine.rs`): the widget adds a
-  "fluxid Remote Sensor" inbound TCP rule when remote monitoring is enabled;
+  "Flux Remote Sensor" inbound TCP rule when remote monitoring is enabled;
   uninstall now queries for it (no elevation) and, if present, deletes it
   elevated (one UAC) — no stale inbound allow rule left behind.
 
 ### Round 7 — snap-to-centerline fix, tooltip follow-cursor, tile glyphs + alignment
 - **Snap-to-"centerline" bug**: `own_window_rects` (window-snap targets) actually
   enumerated EVERY visible window >120px, so the widget docked to any nearby
-  third-party window — including one centered on screen. Filtered to fluxid's OWN
+  third-party window — including one centered on screen. Filtered to Flux's OWN
   process (GetWindowThreadProcessId == GetCurrentProcessId) so it only docks to
   its own settings/popup windows, as the name/comment always intended.
 - **Tooltips follow the cursor**: Position::Top flipped under the cursor for the

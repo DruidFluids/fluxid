@@ -2,7 +2,7 @@
 # result + permalink, for inclusion in a release.
 #
 #   $env:VT_API_KEY = "<your key>"
-#   powershell -ExecutionPolicy Bypass -File scripts\Scan-VirusTotal.ps1 -File dist\fluxid-setup-v1.0.0.exe
+#   powershell -ExecutionPolicy Bypass -File scripts\Scan-VirusTotal.ps1 -File dist\flux-setup-v1.0.0.exe
 #
 # The permalink (https://www.virustotal.com/gui/file/<sha256>) is deterministic
 # from the file hash, so once uploaded it is permanent. Get a free API key at

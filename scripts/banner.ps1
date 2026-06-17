@@ -45,7 +45,7 @@ if ($Install) {
     $line = ". `"$PSCommandPath`""
     if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force | Out-Null }
     if (-not (Select-String -Path $PROFILE -SimpleMatch 'scripts\banner.ps1' -Quiet)) {
-        Add-Content -Path $PROFILE -Value "`n# fluxid project banner`nif (Test-Path '$PSCommandPath') { $line }"
+        Add-Content -Path $PROFILE -Value "`n# Flux project banner`nif (Test-Path '$PSCommandPath') { $line }"
         Write-Host "Added the banner to your PowerShell profile ($PROFILE)." -ForegroundColor Green
     } else {
         Write-Host "Banner already in your PowerShell profile." -ForegroundColor Yellow

@@ -1,0 +1,11 @@
+[package]
+name = "flux-ipc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flux-core = { path = "../flux-core" }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+interprocess = { workspace = true }

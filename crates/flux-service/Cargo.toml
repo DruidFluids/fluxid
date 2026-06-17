@@ -1,0 +1,16 @@
+[package]
+name = "flux-service"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "flux-service"
+path = "src/main.rs"
+
+[dependencies]
+flux-core = { path = "../flux-core" }
+flux-sensor = { path = "../flux-sensor" }
+flux-ipc = { path = "../flux-ipc" }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

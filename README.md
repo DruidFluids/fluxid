@@ -1,29 +1,29 @@
 <div align="center">
 
-<img src="docs/images/icon.png" alt="fluxid" width="96" height="96">
+<img src="docs/images/icon.png" alt="Flux" width="96" height="96">
 
-# fluxid
+# Flux
 
 **A beautiful, lightweight system monitor widget for Windows.**
 
 Real-time CPU, GPU, RAM, network, and disk stats — always on your desktop, never in your way.
 
-[![Release](https://img.shields.io/badge/release-v1.0.3-5898a0)](../../releases)
+[![Release](https://img.shields.io/badge/release-v1.0.4-5898a0)](../../releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)](#requirements)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20iced-dea584)](https://iced.rs)
 [![License](https://img.shields.io/badge/license-Personal%20Use-c0392b)](LICENSE)
 
 <br>
 
-<img src="docs/images/hero.png" alt="fluxid widget" width="260">
+<img src="docs/images/hero.png" alt="Flux widget" width="260">
 
 </div>
 
 ---
 
-## Why fluxid?
+## Why Flux?
 
-Most system monitors are either heavyweight dashboards or cryptic taskbar numbers. fluxid sits in between — a clean, themeable widget that shows exactly what you care about at a glance, with virtually zero overhead.
+Most system monitors are either heavyweight dashboards or cryptic taskbar numbers. Flux sits in between — a clean, themeable widget that shows exactly what you care about at a glance, with virtually zero overhead.
 
 - **One tiny executable** — no background service, no .NET runtime, no browser engine. The widget polls hardware in-process and renders on the GPU.
 - **Beautiful by default, yours in two clicks** — a library of skins, 100+ color presets, full font control, or roll the dice and let it surprise you.
@@ -63,7 +63,7 @@ Hit the dice for a random look, undo if you don't like it, and save your favorit
 
 ### CPU temperature
 
-A one-time sensor driver setup ([PawnIO](https://pawnio.eu/)) unlocks CPU temperature directly on the widget. The driver is downloaded on demand from the official source — **fluxid never bundles or redistributes it**. Switch between °C and °F with a rocker, and remove the driver any time from the same menu.
+A one-time sensor driver setup ([PawnIO](https://pawnio.eu/)) unlocks CPU temperature directly on the widget. The driver is downloaded on demand from the official source — **Flux never bundles or redistributes it**. Switch between °C and °F with a rocker, and remove the driver any time from the same menu.
 
 ### Game Mode
 
@@ -91,7 +91,7 @@ Quick launchers for popular Windows optimization tools and a window-snap blockli
 
 ### Remote monitoring
 
-Run fluxid on multiple machines and watch them all from one desktop. TCP over TLS with mutual handshake-key authentication. Each remote device gets its own popout widget with independent layout and theming.
+Run Flux on multiple machines and watch them all from one desktop. TCP over TLS with mutual handshake-key authentication. Each remote device gets its own popout widget with independent layout and theming.
 
 <div align="center">
 <img src="docs/images/remote-monitoring.png" alt="Remote monitoring" width="420">
@@ -111,24 +111,24 @@ Run fluxid on multiple machines and watch them all from one desktop. TCP over TL
 
 ## Security
 
-fluxid is built with security-conscious defaults:
+Flux is built with security-conscious defaults:
 
 - **No telemetry** — the app makes zero analytics calls. The only outbound connections are the optional update check, the optional PawnIO driver download (user-initiated), and LAN-only remote monitoring.
 - **PawnIO is never bundled** — the CPU temperature driver is downloaded on demand from its [official GitHub release](https://github.com/namazso/PawnIO.Setup/releases), and is never redistributed here.
 - **Verified updates** — the in-app updater refuses to run a downloaded installer unless its SHA-256 matches a checksum published alongside the release.
 - **Scanned on VirusTotal** — every release is scanned and the result is linked in its notes. v1.0.3: **[0 / 63](https://www.virustotal.com/gui/file/ff7e3a43e41621c34e73a75cfee66a22364c5327df96573038b1d2fe71bc157d)** (clean).
 - **Unsigned build** — the installer is not code-signed, so Windows SmartScreen shows a one-time prompt. Verify any download against the `.sha256` published with each release before running it.
-- **Settings stay local** — all configuration lives in `%APPDATA%\fluxid`. Nothing is sent anywhere.
+- **Settings stay local** — all configuration lives in `%APPDATA%\Flux`. Nothing is sent anywhere.
 - **Source-available** — every line is in this repo for inspection (see [License](#license)).
 
 ---
 
 ## Installation
 
-1. Download the latest **`fluxid-setup-vX.Y.Z.exe`** from [**Releases**](../../releases).
+1. Download the latest **`flux-setup-vX.Y.Z.exe`** from [**Releases**](../../releases).
 2. (Recommended) verify it against the published checksum:
    ```powershell
-   Get-FileHash .\fluxid-setup-vX.Y.Z.exe -Algorithm SHA256
+   Get-FileHash .\flux-setup-vX.Y.Z.exe -Algorithm SHA256
    ```
 3. Run it. The build is unsigned, so SmartScreen shows a one-time prompt — click **More info → Run anyway**.
 4. Follow the wizard: **Just me** (no admin) or **All users**, pick the optional desktop shortcut / startup / launch, and **Install**.
@@ -136,8 +136,8 @@ fluxid is built with security-conscious defaults:
 The installer is a small, self-contained custom installer that embeds the widget — no separate download, no service, no .NET. It can also run silently for scripted deployments:
 
 ```bat
-fluxid-setup.exe /S            :: silent per-user install
-fluxid-setup.exe --help        :: list every switch
+flux-setup.exe /S            :: silent per-user install
+flux-setup.exe --help        :: list every switch
 ```
 
 See [`docs/INSTALLER.md`](docs/INSTALLER.md) for the full command-line reference, install locations, the registry/shortcut layout, and uninstall instructions.
@@ -149,30 +149,30 @@ See [`docs/INSTALLER.md`](docs/INSTALLER.md) for the full command-line reference
 
 ### Uninstall
 
-**Settings → Apps → fluxid → Uninstall** (or Control Panel → Programs and Features). Your settings in `%APPDATA%\fluxid` are kept unless you uninstall from the command line with `--remove-settings`.
+**Settings → Apps → Flux → Uninstall** (or Control Panel → Programs and Features). Your settings in `%APPDATA%\Flux` are kept unless you uninstall from the command line with `--remove-settings`.
 
 ---
 
 ## Architecture
 
-fluxid is a single executable — no background service, no runtime to install.
+Flux is a single executable — no background service, no runtime to install.
 
 ```
 ┌───────────────────────────────────────────┐       TLS (optional)        other
-│  fluxid  (fluid-widget)                    │ ◄───────────────────────►   machines
-│  • polls hardware in-process (fluid-sensor)│    remote sensor sharing    running
-│  • renders tiles on the GPU via iced/wgpu  │                             fluxid
+│  Flux  (flux-widget)                    │ ◄───────────────────────►   machines
+│  • polls hardware in-process (flux-sensor)│    remote sensor sharing    running
+│  • renders tiles on the GPU via iced/wgpu  │                             Flux
 └───────────────────────────────────────────┘
 ```
 
 | Crate | What it is |
 |-------|------------|
-| `fluid-widget` | The widget app (binary `fluxid`). |
-| `fluid-sensor` | Hardware polling — sysinfo, NVML for NVIDIA, optional PawnIO for CPU temp. |
-| `fluid-core` | Shared settings and types. |
-| `fluid-ipc` / `fluid-remote` | Local IPC and remote-monitoring transport (TLS). |
-| `fluid-setup` | The self-contained installer (binary `fluxid-setup`). |
-| `fluid-service` | Optional standalone sensor service. |
+| `flux-widget` | The widget app (binary `Flux`). |
+| `flux-sensor` | Hardware polling — sysinfo, NVML for NVIDIA, optional PawnIO for CPU temp. |
+| `flux-core` | Shared settings and types. |
+| `flux-ipc` / `flux-remote` | Local IPC and remote-monitoring transport (TLS). |
+| `flux-setup` | The self-contained installer (binary `flux-setup`). |
+| `flux-service` | Optional standalone sensor service. |
 
 ---
 
@@ -181,15 +181,15 @@ fluxid is a single executable — no background service, no runtime to install.
 Requires a recent stable Rust toolchain on Windows.
 
 ```powershell
-git clone https://github.com/DruidFluids/fluxid.git
-cd fluxid
+git clone https://github.com/DruidFluids/Flux.git
+cd Flux
 
 # Run the widget directly
-cargo run -p fluid-widget --release
+cargo run -p flux-widget --release
 
 # Build the distributable installer (widget + embedded payload + checksum)
 powershell -ExecutionPolicy Bypass -File scripts\Build-Setup.ps1
-# -> dist\fluxid-setup-v<version>.exe
+# -> dist\flux-setup-v<version>.exe
 ```
 
 ---
@@ -198,7 +198,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Setup.ps1
 
 **Personal Use License** — © 2026 Matt Hakes (DruidFluids). Source-available, **not** open-source.
 
-You **may** download, build, run, and **modify** fluxid for your own use. You **may not** redistribute it — publishing, sharing, mirroring, sublicensing, or selling the software or its source (original or modified, source or binary) requires prior written permission. See [`LICENSE`](LICENSE) for the exact terms.
+You **may** download, build, run, and **modify** Flux for your own use. You **may not** redistribute it — publishing, sharing, mirroring, sublicensing, or selling the software or its source (original or modified, source or binary) requires prior written permission. See [`LICENSE`](LICENSE) for the exact terms.
 
 ---
 

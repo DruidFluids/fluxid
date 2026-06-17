@@ -14,7 +14,7 @@ Re-added the optional CPU sensor driver, faithful to C#. The user opts in from
 - **Read (self-contained):** bundles the officially-signed PawnIO modules
   (LGPL-2.1) — `IntelMSR.bin` (all Intel), `AMDFamily17.bin` (all AMD Zen 1–5)
   — and reads the CPU's thermal MSR/SMN directly via `PawnIOLib.dll`. Decode is
-  a faithful port of LibreHardwareMonitor. (`fluid-sensor/src/pawnio.rs`)
+  a faithful port of LibreHardwareMonitor. (`flux-sensor/src/pawnio.rs`)
 - Preferred source on Windows; LHM-WMI and ACPI remain fallbacks. Re-probes
   live after install/uninstall (no restart).
 

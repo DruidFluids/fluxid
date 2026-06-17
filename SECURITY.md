@@ -1,11 +1,11 @@
-# fluxid — Security Posture
+# Flux — Security Posture
 
 Primary goal: **zero security issues.** This document is the threat model and
 the inventory of every privileged / network / code-execution surface, with the
 protection on each. Keep it current when those surfaces change.
 
 ## Design principles
-- **Local-first, no telemetry.** Settings live in `%APPDATA%\fluxid`.
+- **Local-first, no telemetry.** Settings live in `%APPDATA%\Flux`.
   Nothing is sent anywhere except (a) opt-in sensor snapshots to *authenticated*
   remote clients and (b) update checks to GitHub. No analytics, no tracking.
 - **Least privilege.** The widget runs unelevated. The only operations that
@@ -33,7 +33,7 @@ protection on each. Keep it current when those surfaces change.
 - **Release requirement:** every release MUST ship a checksum asset, or
   auto-update silently no-ops by design.
 
-### Remote feed (`fluid-remote`)
+### Remote feed (`flux-remote`)
 - Off by default. Enabling it adds one Windows Firewall rule (TCP 5199, **private
   profile only**) — see below.
 - Handshake key = `FM1:base64(certSHA256 ‖ hmacSecret)`. The client pins the
@@ -45,7 +45,7 @@ protection on each. Keep it current when those surfaces change.
 
 | Operation | When | Elevation | Notes |
 |-----------|------|-----------|-------|
-| Add firewall rule `fluxid Remote Sensor` | first time the TCP feed is enabled | UAC once (persisted flag prevents re-prompt) | TCP 5199, inbound, allow, **private** profile — mirrors the C# installer |
+| Add firewall rule `Flux Remote Sensor` | first time the TCP feed is enabled | UAC once (persisted flag prevents re-prompt) | TCP 5199, inbound, allow, **private** profile — mirrors the C# installer |
 | Run at Windows startup | user toggles it | none | `HKCU\…\Run` value; removable |
 | Run the verified installer | user clicks Download on an available update | installer's own UAC | only after SHA-256 verification |
 
@@ -71,7 +71,7 @@ industry-standard fixes are:
 3. Keep avoiding download-and-execute and `iex`-style patterns (done).
 
 ## Skin loader (data-only)
-- User skins live as JSON in `%APPDATA%\fluxid\skins\*.json`. They are
+- User skins live as JSON in `%APPDATA%\Flux\skins\*.json`. They are
   **pure data** — geometry numbers + a `border_src` enum — deserialized with
   serde, **range-clamped** (radii/borders/spacing/alpha all bounded), and
   **cannot shadow a built-in skin name**. No code, scripts, or DLLs are ever

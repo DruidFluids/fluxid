@@ -1,21 +1,21 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/fluid-core",
-    "crates/fluid-sensor",
-    "crates/fluid-ipc",
-    "crates/fluid-remote",
-    "crates/fluid-widget",
-    "crates/fluid-service",
-    "crates/fluid-setup",
+    "crates/flux-core",
+    "crates/flux-sensor",
+    "crates/flux-ipc",
+    "crates/flux-remote",
+    "crates/flux-widget",
+    "crates/flux-service",
+    "crates/flux-setup",
 ]
 
 [workspace.package]
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 authors = ["Matt Hakes"]
 license = "LicenseRef-PersonalUse"
-repository = "https://github.com/DruidFluids/fluxid"
+repository = "https://github.com/DruidFluids/Flux"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
