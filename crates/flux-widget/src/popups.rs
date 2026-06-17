@@ -203,6 +203,7 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
     let k4 = kind.to_string();
     let k5 = kind.to_string();
     let k6 = kind.to_string();
+    let k7 = kind.to_string();
     let display = format!("{} Tile", kind);
 
     let metrics = vec!["Temperature".to_string(), "Load".to_string()];
@@ -226,9 +227,19 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
             ..p
         }
     };
+    let grad_cool_row: Element<'a, Message> = if w.gradient_mode {
+        row![
+            text("Start color".to_string()).size(10).style(move |_| iced::widget::text::Style { color: Some(bp.muted) }),
+            Space::with_width(Length::Fill),
+            crate::style::with_tip(color_field(&w.gradient_cool_color, bp, move |s| Message::SetWarnGradientCoolColor(k7.clone(), s)),
+                "The starting color the unit shows when the value is comfortably below the threshold.", bp),
+        ].spacing(6).align_y(iced::Alignment::Center).into()
+    } else {
+        Space::with_height(0).into()
+    };
     let grad_color_row: Element<'a, Message> = if w.gradient_mode {
         row![
-            text("Gradient color".to_string()).size(10).style(move |_| iced::widget::text::Style { color: Some(bp.muted) }),
+            text("Hot color".to_string()).size(10).style(move |_| iced::widget::text::Style { color: Some(bp.muted) }),
             Space::with_width(Length::Fill),
             crate::style::with_tip(color_field(&w.gradient_color, bp, move |s| Message::SetWarnGradientColor(k6.clone(), s)),
                 "The 'hot' color the unit text shifts toward as the metric approaches the threshold.", bp),
@@ -264,10 +275,11 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
         ].spacing(6).align_y(iced::Alignment::Center),
         // Gradient + (when on) the gradient hot-colour swatch
         row![
-            crate::style::with_tip(toggler(w.gradient_mode).size(14).on_toggle(move |on| Message::SetWarnGradient(k5.clone(), on)).style(crate::style::toggler_style(bp)), "Instead of flashing, shift the unit colour toward your hot colour as the value climbs.", bp),
-            text("Gradient mode \u{2014} unit color shifts blue \u{2192} your color".to_string()).size(10)
+            crate::style::with_tip(toggler(w.gradient_mode).size(14).on_toggle(move |on| Message::SetWarnGradient(k5.clone(), on)).style(crate::style::toggler_style(bp)), "Instead of flashing, shift the unit colour from your start colour toward your hot colour as the value climbs.", bp),
+            text("Gradient mode \u{2014} unit color shifts start \u{2192} hot".to_string()).size(10)
                 .style(move |_| iced::widget::text::Style { color: Some(bp.text) }),
         ].spacing(6).align_y(iced::Alignment::Center),
+        grad_cool_row,
         grad_color_row,
     ].spacing(8);
 

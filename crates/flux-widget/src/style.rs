@@ -121,70 +121,48 @@ pub fn expand_chevron<'a>(open: bool, color: Color, size: f32) -> Element<'a, Me
         .into()
 }
 
-/// The Flux brand mark: a small accent "activity pulse" (ECG) stroke — same
-/// motif as the installer badge. Used to dress up the Settings title bar.
-struct BrandPulse {
-    color: Color,
-}
-impl canvas::Program<Message> for BrandPulse {
-    type State = ();
-    fn draw(
-        &self,
-        _state: &(),
-        renderer: &iced::Renderer,
-        _theme: &iced::Theme,
-        bounds: iced::Rectangle,
-        _cursor: iced::mouse::Cursor,
-    ) -> Vec<canvas::Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        let r = bounds.width.min(bounds.height);
-        let (cx, cy) = (bounds.width / 2.0, bounds.height / 2.0);
-        let pts = [
-            (-0.46, 0.0),
-            (-0.22, 0.0),
-            (-0.08, 0.32),
-            (0.04, -0.42),
-            (0.18, 0.22),
-            (0.30, 0.0),
-            (0.46, 0.0),
-        ];
-        let mut b = path::Builder::new();
-        for (i, (dx, dy)) in pts.iter().enumerate() {
-            let pt = iced::Point::new(cx + dx * r, cy + dy * r);
-            if i == 0 {
-                b.move_to(pt);
-            } else {
-                b.line_to(pt);
-            }
-        }
-        // One-shot "blip" on window open: briefly brighter + thicker, easing back.
-        let phase = brand_blip_phase();
-        let e = 1.0 - (1.0 - phase).powi(3); // ease-out
-        let lift = (1.0 - e) * 0.55;
-        let col = Color {
-            r: self.color.r + (1.0 - self.color.r) * lift,
-            g: self.color.g + (1.0 - self.color.g) * lift,
-            b: self.color.b + (1.0 - self.color.b) * lift,
-            a: self.color.a,
-        };
-        let width = (r * 0.11).max(1.6) * (1.0 + (1.0 - e) * 0.65);
-        frame.stroke(
-            &b.build(),
-            Stroke::default()
-                .with_width(width)
-                .with_color(col)
-                .with_line_cap(LineCap::Round)
-                .with_line_join(LineJoin::Round),
-        );
-        vec![frame.into_geometry()]
-    }
-}
-
-/// The Flux brand pulse mark as a fixed-size element.
+/// The Flux brand mark: an accent "activity pulse" (ECG) matching the heartbeat
+/// on the app icon. Rendered as SVG (resvg) rather than a small canvas stroke,
+/// which the GPU softens — SVG stays crisp at any DPI, like the network arrows.
 pub fn brand_pulse<'a>(color: Color, size: f32) -> Element<'a, Message> {
-    canvas::Canvas::new(BrandPulse { color })
+    // EKG points (normalized -0.5..0.5), matching the icon's heartbeat.
+    let pts = [
+        (-0.50, 0.0),
+        (-0.18, 0.0),
+        (-0.10, 0.16),
+        (-0.02, -0.62),
+        (0.07, 0.34),
+        (0.16, 0.0),
+        (0.50, 0.0),
+    ];
+    // One-shot "blip" on window open: briefly brighter + thicker, easing back.
+    let phase = brand_blip_phase();
+    let e = 1.0 - (1.0 - phase).powi(3);
+    let lift = (1.0 - e) * 0.55;
+    let col = Color {
+        r: color.r + (1.0 - color.r) * lift,
+        g: color.g + (1.0 - color.g) * lift,
+        b: color.b + (1.0 - color.b) * lift,
+        a: color.a,
+    };
+    let hex = format!("#{:02X}{:02X}{:02X}",
+        (col.r * 255.0).round() as u8, (col.g * 255.0).round() as u8, (col.b * 255.0).round() as u8);
+    let stroke_w = 9.0 * (1.0 + (1.0 - e) * 0.6); // in the 100-unit viewBox
+    let mut d = String::new();
+    for (i, (dx, dy)) in pts.iter().enumerate() {
+        let x = 50.0 + dx * 92.0;
+        let y = 50.0 + dy * 62.0;
+        d.push_str(&format!("{}{:.2} {:.2} ", if i == 0 { "M" } else { "L" }, x, y));
+    }
+    let svg_str = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">\
+         <path d=\"{d}\" fill=\"none\" stroke=\"{hex}\" stroke-width=\"{w:.1}\" \
+         stroke-linecap=\"round\" stroke-linejoin=\"round\" opacity=\"{a:.3}\"/></svg>",
+        d = d, hex = hex, w = stroke_w, a = col.a);
+    iced::widget::svg(iced::widget::svg::Handle::from_memory(svg_str.into_bytes()))
         .width(iced::Length::Fixed(size))
         .height(iced::Length::Fixed(size))
+        .style(|_t: &iced::Theme, _s| iced::widget::svg::Style { color: None })
         .into()
 }
 
@@ -545,17 +523,11 @@ pub fn scrollable_style(p: Palette) -> impl Fn(&iced::Theme, iced::widget::scrol
 /// Gradient unit colour: a fixed cool blue when the value is 15°C+ below the
 /// threshold, shifting through a violet midpoint to the user-chosen `hot` colour
 /// as the value reaches the threshold (`dist` = threshold − value).
-pub fn gradient_color(dist: f64, hot: Color) -> Color {
-    let cool = Color::from_rgb(0x00 as f32 / 255.0, 0x66 as f32 / 255.0, 0xCC as f32 / 255.0);
-    let mid = Color::from_rgb(0x66 as f32 / 255.0, 0x33 as f32 / 255.0, 0xCC as f32 / 255.0);
+pub fn gradient_color(dist: f64, cool: Color, hot: Color) -> Color {
+    // Blend straight from the user's cool colour to their hot colour across the
+    // last 15° before the threshold (dist = threshold − value).
     let t = ((15.0 - dist) / 15.0).clamp(0.0, 1.0) as f32;
-    // Two-leg blend: cool→mid for the first half, mid→hot for the second, so the
-    // ramp keeps a pleasing curve regardless of the chosen hot colour.
-    if t < 0.5 {
-        lerp(cool, mid, t * 2.0)
-    } else {
-        lerp(mid, hot, (t - 0.5) * 2.0)
-    }
+    lerp(cool, hot, t)
 }
 
 /// (name, bg, tile, accent, text, muted) — ported verbatim from ThemeApplier.cs

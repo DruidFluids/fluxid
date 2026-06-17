@@ -503,7 +503,8 @@ fn warn_view_for(warnings: &[flux_core::settings::TileWarning], kind: &str, snap
     let exceeded = current >= w.threshold;
     let accent_override = if w.gradient_mode && w.metric == WarnMetric::Temperature {
         let hot = style::parse_hex(&w.gradient_color, Color::from_rgb(1.0, 0.13, 0.0));
-        temp.and_then(|t| { let dist = w.threshold - t as f64; if dist <= 15.0 { Some(style::gradient_color(dist, hot)) } else { None } })
+        let cool = style::parse_hex(&w.gradient_cool_color, Color::from_rgb(0.0, 0.4, 0.8));
+        temp.and_then(|t| { let dist = w.threshold - t as f64; if dist <= 15.0 { Some(style::gradient_color(dist, cool, hot)) } else { None } })
     } else { None };
     WarnView { flash: exceeded && w.flash_enabled && flash_on, accent_override }
 }
@@ -683,6 +684,7 @@ enum Message {
     SetWarnFlash(String, bool), SetWarnGradient(String, bool),
     SetWarnMetric(String, WarnMetric), SetWarnThresholdStr(String, String), SetWarnFlashColor(String, String),
     SetWarnGradientColor(String, String),
+    SetWarnGradientCoolColor(String, String),
     SetHexColor(u8, String),
     SetTileWidth(f32), SetTileHeight(f32),
     SetPrimaryFontOffset(f32), SetSecondaryFontOffset(f32), SetIndicatorFontOffset(f32),
@@ -1158,7 +1160,8 @@ impl App {
             let exceeded = current >= w.threshold;
             let accent_override = if w.gradient_mode && w.metric == WarnMetric::Temperature {
                 let hot = style::parse_hex(&w.gradient_color, Color::from_rgb(1.0, 0.13, 0.0));
-                temp.and_then(|t| { let dist = w.threshold - t as f64; if dist <= 15.0 { Some(style::gradient_color(dist, hot)) } else { None } })
+                let cool = style::parse_hex(&w.gradient_cool_color, Color::from_rgb(0.0, 0.4, 0.8));
+                temp.and_then(|t| { let dist = w.threshold - t as f64; if dist <= 15.0 { Some(style::gradient_color(dist, cool, hot)) } else { None } })
             } else { None };
             self.warn_state.insert(w.kind.clone(), (exceeded && w.flash_enabled, accent_override));
         }
@@ -1856,6 +1859,7 @@ impl App {
             Message::SetWarnMetric(k, m) => { self.settings.warn_mut(&k).metric = m; self.eval_warnings(); Task::none() }
             Message::SetWarnFlashColor(k, s) => { self.settings.warn_mut(&k).flash_color = s; let _ = self.settings.save(); Task::none() }
             Message::SetWarnGradientColor(k, s) => { self.settings.warn_mut(&k).gradient_color = s; let _ = self.settings.save(); Task::none() }
+            Message::SetWarnGradientCoolColor(k, s) => { self.settings.warn_mut(&k).gradient_cool_color = s; let _ = self.settings.save(); Task::none() }
             Message::EditColor(slot) => {
                 self.editing_color = if self.editing_color == Some(slot) { None } else { Some(slot) };
                 Task::none()
