@@ -841,16 +841,19 @@ impl App {
             size, position, decorations: false, transparent: true, resizable: false, level, icon, ..Default::default()
         });
         let open_task = open.map(|id| Message::WindowOpened(id, WindowKind::Widget));
-        // Always fetch the latest release notes on launch (no install) so the
-        // Updates changelog is ready for the user to read.
-        let notes = Task::perform(updates::latest_release(), Message::LatestReleaseDone);
-        // Auto mode additionally runs a version check (still no auto-install).
-        let task = if app.settings.update_check_mode == fluid_core::settings::UpdateMode::Auto {
-            Task::batch([open_task, notes, Task::done(Message::CheckForUpdates)])
-        } else {
-            Task::batch([open_task, notes])
-        };
-        (app, task)
+        use fluid_core::settings::UpdateMode;
+        let mode = app.settings.update_check_mode.clone();
+        let mut batch = vec![open_task];
+        // Off makes no update network calls at all. Every other mode fetches the
+        // latest release notes so the Updates changelog is ready to read.
+        if mode != UpdateMode::Off {
+            batch.push(Task::perform(updates::latest_release(), Message::LatestReleaseDone));
+        }
+        // Auto / Auto-install additionally run a version check on launch.
+        if matches!(mode, UpdateMode::Auto | UpdateMode::AutoInstall) {
+            batch.push(Task::done(Message::CheckForUpdates));
+        }
+        (app, Task::batch(batch))
     }
 
     // One fixed height for every tab and state — tall enough for the densest
@@ -2172,16 +2175,24 @@ impl App {
                 Task::none()
             }
             Message::SetUpdateMode(mode) => {
+                use fluid_core::settings::UpdateMode;
                 self.settings.update_check_mode = match mode.as_str() {
-                    "Auto" => fluid_core::settings::UpdateMode::Auto,
-                    "Off" => fluid_core::settings::UpdateMode::Off,
-                    _ => fluid_core::settings::UpdateMode::Manual,
+                    "Auto" => UpdateMode::Auto,
+                    "AutoInstall" => UpdateMode::AutoInstall,
+                    "Off" => UpdateMode::Off,
+                    _ => UpdateMode::Manual,
                 };
                 let _ = self.settings.save();
+                // Entering an auto mode runs a check straight away so the new
+                // setting takes effect without waiting for a restart.
+                if matches!(self.settings.update_check_mode, UpdateMode::Auto | UpdateMode::AutoInstall) {
+                    return Task::done(Message::CheckForUpdates);
+                }
                 Task::none()
             }
             Message::CheckForUpdates => {
-                if self.update_checking { return Task::none(); }
+                // Don't interrupt an in-flight download (e.g. a periodic re-check).
+                if self.update_checking || self.update_progress.is_some() { return Task::none(); }
                 self.update_checking = true;
                 self.update_status = "Checking\u{2026}".into();
                 self.update_status_kind = 0;
@@ -2208,6 +2219,10 @@ impl App {
                         self.update_status_kind = 1;
                         update.changelog = updates::whats_new(&update.changelog);
                         self.update_available = Some(update);
+                        // Auto-install: download + verify + install hands-free.
+                        if self.settings.update_check_mode == fluid_core::settings::UpdateMode::AutoInstall {
+                            return Task::done(Message::DownloadUpdate);
+                        }
                     }
                     updates::CheckResult::Failed(e) => {
                         tracing::debug!("update check failed: {e}");
@@ -2748,8 +2763,28 @@ impl App {
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
             ).padding(0).style(|_, _| button::Style { background: None, ..Default::default() }).on_press(msg)
         };
+        // The gear gets a small accent "update available" dot in its corner so
+        // Auto-mode users notice a pending update without opening Settings.
+        let update_waiting = self.update_available.is_some();
+        let gear_tip = if update_waiting { "Update available \u{2014} open Settings" } else { "Open settings" };
+        let gear = style::with_tip(icon_btn("\u{2699}", 14, Message::OpenSettings), gear_tip, p);
+        let gear_el: Element<'_, Message> = if update_waiting {
+            let dot = container(Space::new(Length::Fixed(5.0), Length::Fixed(5.0)))
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(p.accent)),
+                    border: Border { radius: 2.5.into(), ..Default::default() },
+                    ..Default::default()
+                });
+            let overlay = column![
+                row![Space::with_width(Length::Fill), dot],
+                Space::with_height(Length::Fill),
+            ].width(Length::Fill).height(Length::Fill);
+            iced::widget::Stack::with_children(vec![gear, overlay.into()]).into()
+        } else {
+            gear
+        };
         let header = row![
-            style::with_tip(icon_btn("\u{2699}", 14, Message::OpenSettings), "Open settings", p),
+            gear_el,
             Space::with_width(Length::Fill),
             style::with_tip(icon_btn("\u{2715}", 12, Message::HideWidget), "Hide the widget (stays running in the tray)", p),
         ].height(16).align_y(iced::Alignment::Center);
@@ -2820,6 +2855,11 @@ impl App {
         // Only run the animation clock for the animated modes (Glow is static).
         if matches!(self.settings.network_traffic_indicator.as_str(), "Blink" | "Fade") {
             subs.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::AnimTick));
+        }
+        // Auto / Auto-install re-check for updates periodically (every 6h) so a
+        // long-running widget notices new releases without needing a restart.
+        if matches!(self.settings.update_check_mode, fluid_core::settings::UpdateMode::Auto | fluid_core::settings::UpdateMode::AutoInstall) {
+            subs.push(iced::time::every(Duration::from_secs(6 * 3600)).map(|_| Message::CheckForUpdates));
         }
         // Drive the title-bar brand blip while it animates after a window opens.
         if self.last_window_open.map(|t| t.elapsed() < Duration::from_millis(550)).unwrap_or(false) {

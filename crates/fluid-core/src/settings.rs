@@ -236,7 +236,7 @@ impl SnapPosition {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum UpdateMode { Auto, Manual, Off }
+pub enum UpdateMode { Auto, Manual, Off, AutoInstall }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TempUnit { Celsius, Fahrenheit }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

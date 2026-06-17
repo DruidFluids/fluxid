@@ -1101,23 +1101,38 @@ pub fn view<'a>(
         Space::with_height(4),
     ].spacing(3);
 
-    // Mode pills + Check now (or Download/Later when an update is available).
-    let mut action_row = row![
-        pill("Auto".into(), update.mode == fluid_core::settings::UpdateMode::Auto, Message::SetUpdateMode("Auto".into())),
-        pill("Manual".into(), update.mode == fluid_core::settings::UpdateMode::Manual, Message::SetUpdateMode("Manual".into())),
-        pill("Off".into(), update.mode == fluid_core::settings::UpdateMode::Off, Message::SetUpdateMode("Off".into())),
+    // Mode pills (Off → Manual → Auto → Auto-install, increasing automation).
+    use fluid_core::settings::UpdateMode;
+    let mode_row = row![
+        pill("Off".into(), update.mode == UpdateMode::Off, Message::SetUpdateMode("Off".into())),
+        pill("Manual".into(), update.mode == UpdateMode::Manual, Message::SetUpdateMode("Manual".into())),
+        pill("Auto".into(), update.mode == UpdateMode::Auto, Message::SetUpdateMode("Auto".into())),
+        pill("Auto-install".into(), update.mode == UpdateMode::AutoInstall, Message::SetUpdateMode("AutoInstall".into())),
         Space::with_width(Length::Fill),
     ].spacing(4).align_y(iced::Alignment::Center);
-    // While downloading, the action buttons give way to the live progress bar.
-    if update.progress.is_none() {
+    updates_col = updates_col.push(mode_row);
+    // One-line description of what the selected mode does.
+    let mode_hint = match update.mode {
+        UpdateMode::Off => "Never checks for updates.",
+        UpdateMode::Manual => "Checks only when you press Check now.",
+        UpdateMode::Auto => "Checks on launch and every 6h, and flags the gear \u{2014} you choose when to install.",
+        UpdateMode::AutoInstall => "Checks and installs new versions automatically (still SHA-256 verified).",
+    };
+    updates_col = updates_col.push(
+        text(mode_hint).size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) })
+    );
+    // Action button: Check now, or Download/Later when an update is available.
+    // Hidden in Off mode and while a download's progress bar is showing.
+    if update.progress.is_none() && update.mode != UpdateMode::Off {
+        let mut action_row = row![Space::with_width(Length::Fill)].align_y(iced::Alignment::Center);
         if update.available.is_some() {
             action_row = action_row.push(inline_btn("Download", Message::DownloadUpdate));
             action_row = action_row.push(inline_btn("Later", Message::UpdateLater));
         } else {
             action_row = action_row.push(inline_btn("Check now", Message::CheckForUpdates));
         }
+        updates_col = updates_col.push(action_row);
     }
-    updates_col = updates_col.push(action_row);
 
     if !update.status.is_empty() {
         updates_col = updates_col.push(
