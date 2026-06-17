@@ -931,6 +931,28 @@ impl App {
         if matches!(mode, UpdateMode::Auto | UpdateMode::AutoInstall) {
             batch.push(Task::done(Message::CheckForUpdates));
         }
+        // Hidden `--shot <name>` (screenshot / visual QA): open Settings on a given
+        // tab, or a specific dialog, at launch so README captures are reproducible.
+        // Harmless in normal use — no flag, no effect. Mirrors flux-setup's --page.
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(name) = args.iter().position(|a| a == "--shot").and_then(|i| args.get(i + 1)) {
+            let (tab, msg): (usize, Option<Message>) = match name.as_str() {
+                "tiles"      => (0, Some(Message::OpenSettings)),
+                "appearance" => (1, Some(Message::OpenSettings)),
+                "tools"      => (2, Some(Message::OpenSettings)),
+                "alerts"     => (2, Some(Message::OpenAlerts)),
+                "game"       => (2, Some(Message::OpenGameMode)),
+                "utilities"  => (2, Some(Message::OpenUtilities)),
+                "remote"     => (2, Some(Message::OpenRemote)),
+                "help"       => (0, Some(Message::OpenHelp)),
+                "cpu"        => (0, Some(Message::OpenCpuDriver)),
+                "themes"     => (1, Some(Message::OpenThemeStore)),
+                "skins"      => (1, Some(Message::OpenSkinPicker)),
+                _ => (0, None),
+            };
+            app.settings_tab = tab;
+            if let Some(m) = msg { batch.push(Task::done(m)); }
+        }
         (app, Task::batch(batch))
     }
 

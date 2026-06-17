@@ -274,6 +274,7 @@ mod gui {
         startup: bool,
         launch: bool,
         outcome: Option<Outcome>,
+        qa: bool,
     }
 
     impl Wizard {
@@ -281,6 +282,10 @@ mod gui {
             // Hidden `--page <welcome|options|installing|done>` to open the
             // wizard on a given page (used for screenshots / visual QA).
             let args: Vec<String> = std::env::args().collect();
+            // QA screenshot mode: when launched via the hidden --page flag, show
+            // placeholder paths (C:\Users\you\...) instead of the real install dir
+            // so captured screenshots never leak the local Windows username.
+            let qa = crate::cli::value(&args, &["page"]).is_some();
             let (page, outcome) = match crate::cli::value(&args, &["page"]) {
                 Some("options") => (Page::Options, None),
                 Some("installing") => (Page::Installing, None),
@@ -311,6 +316,7 @@ mod gui {
                     startup: true,
                     launch: true,
                     outcome,
+                    qa,
                 },
                 Task::none(),
             )
@@ -425,12 +431,21 @@ mod gui {
         }
 
         fn options_page(&self) -> (Element<'_, Message>, Element<'_, Message>) {
-            let location: Element<'_, Message> = match engine::install_dir(self.scope) {
-                Ok(dir) => text(format!("Location: {}", dir.display()))
-                    .size(12)
-                    .style(style::muted)
-                    .into(),
-                Err(_) => Space::with_height(0).into(),
+            let location: Element<'_, Message> = if self.qa {
+                // Screenshot mode: generic path, never the real username.
+                let demo = match self.scope {
+                    Scope::AllUsers => "C:\\Program Files\\Flux",
+                    Scope::PerUser => "C:\\Users\\you\\AppData\\Local\\Flux",
+                };
+                text(format!("Location: {demo}")).size(12).style(style::muted).into()
+            } else {
+                match engine::install_dir(self.scope) {
+                    Ok(dir) => text(format!("Location: {}", dir.display()))
+                        .size(12)
+                        .style(style::muted)
+                        .into(),
+                    Err(_) => Space::with_height(0).into(),
+                }
             };
 
             let elevation_note: Element<'_, Message> = if self.scope == Scope::AllUsers {
