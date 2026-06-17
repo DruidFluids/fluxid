@@ -11,11 +11,13 @@ path = "src/main.rs"
 winresource = "0.1"
 ico = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
+flate2 = "1"
 
 [dependencies]
 iced = { workspace = true }
 tokio = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
+flate2 = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56.0"

@@ -1296,6 +1296,7 @@ dependencies = [
 name = "flux-setup"
 version = "1.0.8"
 dependencies = [
+ "flate2",
  "iced",
  "ico",
  "image",

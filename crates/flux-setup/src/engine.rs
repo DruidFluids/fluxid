@@ -445,7 +445,7 @@ mod imp {
         // 1. Write the widget exe. During a live self-update the old widget was
         //    just force-killed, and Windows can take a moment to release its lock
         //    on the exe — so retry briefly instead of failing the whole update.
-        write_exe_with_retry(&exe, crate::payload::FLUX_EXE)
+        write_exe_with_retry(&exe, &crate::payload::flux_exe())
             .map_err(|e| err(format!("write {}: {e}", exe.display())))?;
         rep.step(format!("Installed {EXE_NAME}"));
 
