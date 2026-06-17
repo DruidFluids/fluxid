@@ -8,7 +8,9 @@ name = "flux-setup"
 path = "src/main.rs"
 
 [build-dependencies]
-embed-manifest = "1.4"
+winresource = "0.1"
+ico = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dependencies]
 iced = { workspace = true }
