@@ -13,6 +13,17 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
+    // Embed an application manifest declaring `asInvoker`. Without it, Windows'
+    // installer-detection heuristic auto-flags any exe named "...setup..." as
+    // requiring elevation, so the non-elevated widget can't launch the installer
+    // for an in-app self-update — CreateProcess fails with ERROR_ELEVATION_REQUIRED
+    // (os error 740). The install is per-user (%LOCALAPPDATA% + HKCU), so no admin
+    // is needed; `asInvoker` opts out of the heuristic and runs without a UAC prompt.
+    if env::var_os("CARGO_CFG_WINDOWS").is_some() {
+        use embed_manifest::{embed_manifest, new_manifest};
+        embed_manifest(new_manifest("Flux.Setup")).expect("unable to embed manifest");
+    }
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     let dest = out_dir.join("payload.bin");
 

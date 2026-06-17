@@ -7,6 +7,9 @@ edition.workspace = true
 name = "flux-setup"
 path = "src/main.rs"
 
+[build-dependencies]
+embed-manifest = "1.4"
+
 [dependencies]
 iced = { workspace = true }
 tokio = { workspace = true }

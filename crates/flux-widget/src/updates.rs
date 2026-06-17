@@ -260,13 +260,43 @@ async fn download_inner(
 pub fn launch_installer(path: &std::path::Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new(path)
-            .args(["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        let file: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        // Launch via ShellExecute (the "open" verb) rather than a bare CreateProcess
+        // so the installer's manifest is honoured. Our installer ships `asInvoker`,
+        // so this runs silently with no UAC. But should a future installer ever
+        // require elevation (e.g. a machine-wide PawnIO driver step), ShellExecute
+        // surfaces a UAC prompt and elevates — instead of CreateProcess hard-failing
+        // with ERROR_ELEVATION_REQUIRED (os error 740), which is exactly the trap a
+        // non-elevated widget hit before.
+        let verb: Vec<u16> = "open\0".encode_utf16().collect();
+        let params: Vec<u16> = "/SILENT /SUPPRESSMSGBOXES /NORESTART\0".encode_utf16().collect();
+        let hinst = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(verb.as_ptr()),
+                PCWSTR(file.as_ptr()),
+                PCWSTR(params.as_ptr()),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // ShellExecuteW returns an HINSTANCE whose value is > 32 on success; <= 32 is
+        // an SE_ERR_* code (e.g. ACCESSDENIED if the user declines a UAC prompt).
+        if (hinst.0 as usize) <= 32 {
+            return Err(format!("could not start installer (ShellExecute code {})", hinst.0 as usize));
+        }
+        Ok(())
     }
-    let _ = path;
-    Ok(())
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Ok(())
+    }
 }
 
 /// Drop a marker in the config dir so the *next* launch (the freshly-installed
