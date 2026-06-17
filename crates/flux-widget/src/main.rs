@@ -64,6 +64,13 @@ fn main() -> iced::Result {
         if args.iter().any(|a| a == "--uninstall-sensor-service") {
             std::process::exit(cpu_driver::run_elevated_uninstall());
         }
+        // Elevated re-entry to add the remote-monitoring firewall rule via netsh,
+        // so the UAC prompt shows "Flux" rather than "Windows Command Processor".
+        if let Some(i) = args.iter().position(|a| a == "--apply-firewall") {
+            let port: u16 = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            firewall::apply_rule_elevated(port);
+            std::process::exit(0);
+        }
     }
 
     tracing_subscriber::fmt()

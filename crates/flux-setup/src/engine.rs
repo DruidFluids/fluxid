@@ -557,12 +557,12 @@ mod imp {
             rep.step("Enabled start with Windows".to_string());
         }
 
-        // 7. Pre-authorize the remote-monitoring firewall rule now, so the widget
-        // never has to pop a firewall/UAC prompt at runtime. Best-effort (one UAC
-        // if the installer isn't already elevated). Removed on uninstall.
-        if add_firewall_rule(5199) {
-            rep.step("Configured firewall rule".to_string());
-        }
+        // Note: the remote-monitoring firewall rule is intentionally NOT added here.
+        // Doing it at install time prompted for elevation on EVERY install/update
+        // (a scary "Windows Command Processor" UAC), even for users who never use
+        // remote monitoring. The widget now adds the rule on demand the first time
+        // the feed is enabled (flux-widget/src/firewall.rs), with a UAC that clearly
+        // shows "Flux". Uninstall still removes the rule if present.
 
         // 8. Launch.
         if opts.launch_after {
@@ -680,6 +680,9 @@ mod imp {
     /// Create the remote-monitoring inbound rule (delete-then-add for
     /// idempotency). Needs elevation; runs directly when the installer is
     /// already elevated, otherwise one UAC prompt. Returns true if attempted.
+    /// No longer called at install time (the widget adds the rule on demand with
+    /// a "Flux"-labelled prompt); kept for potential future use.
+    #[allow(dead_code)]
     fn add_firewall_rule(port: u16) -> bool {
         let combined = format!(
             "netsh advfirewall firewall delete rule name=\"{FIREWALL_RULE}\" >nul 2>&1 & \

@@ -20,19 +20,39 @@ pub fn ensure_rule(port: u16) {
     if rule_exists() {
         return;
     }
-    let bat = std::env::temp_dir().join("Flux_fw_add.bat");
-    let script = format!(
-        "@echo off\r\n\
-         netsh advfirewall firewall delete rule name=\"{RULE_NAME}\" >nul 2>&1\r\n\
-         netsh advfirewall firewall add rule name=\"{RULE_NAME}\" dir=in action=allow \
-         protocol=tcp localport={port} profile=private \
-         description=\"Flux remote hardware sensor feed\"\r\n\
-         del \"%~f0\"\r\n"
-    );
-    if std::fs::write(&bat, script).is_err() {
-        return;
-    }
-    run_elevated("cmd.exe", &format!("/c \"{}\"", bat.display()));
+    // Elevate flux.exe itself (re-entering with --apply-firewall), NOT cmd.exe, so
+    // the UAC prompt reads "Flux" instead of "Windows Command Processor / Microsoft
+    // Windows" — which looks alarming for a freshly-downloaded app. The elevated
+    // instance runs the netsh commands in-process (see apply_rule_elevated).
+    let exe = match std::env::current_exe() {
+        Ok(e) => e.to_string_lossy().into_owned(),
+        Err(_) => return,
+    };
+    run_elevated(&exe, &format!("--apply-firewall {port}"));
+}
+
+/// Elevated re-entry (`flux.exe --apply-firewall <port>`): (re)create the inbound
+/// allow rule with netsh, run in-process so no `cmd.exe` wrapper (and its scary
+/// UAC) is needed. Best-effort.
+#[cfg(target_os = "windows")]
+pub fn apply_rule_elevated(port: u16) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = std::process::Command::new("netsh")
+        .args(["advfirewall", "firewall", "delete", "rule", &format!("name={RULE_NAME}")])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+    let _ = std::process::Command::new("netsh")
+        .args([
+            "advfirewall", "firewall", "add", "rule",
+            &format!("name={RULE_NAME}"),
+            "dir=in", "action=allow", "protocol=tcp",
+            &format!("localport={port}"),
+            "profile=private",
+            "description=Flux remote hardware sensor feed",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
 }
 
 /// Does the named inbound rule already exist? (No elevation needed — query only.)
