@@ -371,6 +371,24 @@ mod imp {
         }
     }
 
+    /// PawnIO's silent uninstall command, if the driver is installed. Used by the
+    /// "remove all traces" path since Flux is what installed it for the user.
+    fn pawnio_uninstall_string() -> Option<String> {
+        use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+        use winreg::RegKey;
+        let key = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey_with_flags(
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO",
+                KEY_READ | KEY_WOW64_64KEY,
+            )
+            .ok()?;
+        let s: String = key
+            .get_value("QuietUninstallString")
+            .or_else(|_| key.get_value("UninstallString"))
+            .ok()?;
+        if s.trim().is_empty() { None } else { Some(s) }
+    }
+
     /// Remove a previous "fluxid"-branded install (dir, shortcuts, ARP entry) when
     /// upgrading to Flux, so the user isn't left with a duplicate app behind.
     fn remove_legacy_install(scope: Scope) {
@@ -552,12 +570,34 @@ mod imp {
             rep.step("Removed firewall rule".to_string());
         }
 
-        // Per-user settings (optional).
+        // "Remove all traces" (optional): user settings, plus the parts that need
+        // elevation — the sensor service, the SYSTEM-written %ProgramData%\Flux
+        // data, and the PawnIO driver Flux installed. Batched into one elevated
+        // command so it's a single UAC prompt.
         if opts.remove_settings {
             if let Ok(sd) = settings_dir() {
                 let _ = std::fs::remove_dir_all(&sd);
                 rep.step("Removed user settings".to_string());
             }
+            let mut parts: Vec<String> = vec![
+                "sc stop FluxSensorService >nul 2>&1".into(),
+                "sc delete FluxSensorService >nul 2>&1".into(),
+                "rmdir /s /q \"%ProgramData%\\Flux\" >nul 2>&1".into(),
+            ];
+            if let Some(u) = pawnio_uninstall_string() {
+                // QuietUninstallString already carries PawnIO's silent flags.
+                parts.push(u);
+            }
+            let params = format!("/c {}", parts.join(" & "));
+            if is_elevated() {
+                let _ = Command::new("cmd.exe")
+                    .raw_arg(&params)
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .status();
+            } else {
+                run_elevated_wait(Path::new("cmd.exe"), &params);
+            }
+            rep.step("Removed sensor service, shared data, and PawnIO driver".to_string());
         }
 
         // Remove the installed exe now; defer the directory (which still holds

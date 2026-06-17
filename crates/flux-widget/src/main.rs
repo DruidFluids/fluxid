@@ -2994,12 +2994,13 @@ impl App {
         }
         // While dragging a tile row, follow the cursor and end on mouse-up.
         if self.tile_drag.is_some() {
-            // Throttle cursor-move events to ~125fps. iced redraws EVERY window on
-            // every message, so a high-polling mouse (up to 1000Hz) would otherwise
-            // flood each move into a redraw of both the heavy settings list and the
-            // widget — starving the frame budget and making the drag stutter. The
-            // 16ms DragAnimTick still drives the glide, so cursor tracking stays
-            // smooth; we just drop redundant sub-8ms moves. Mouse-up always passes.
+            // Throttle cursor-move events to ~60fps, matching the 16ms DragAnimTick
+            // glide. iced redraws EVERY window on every message, so a high-polling
+            // mouse (up to 1000Hz) would otherwise flood each move into a redraw of
+            // BOTH the heavy settings list and the widget. Capping at 125fps still
+            // overloaded the expensive settings panel (its drag bar trailed the
+            // lightweight widget); one coherent 60fps rate lets the heavy window keep
+            // up, so both stay smooth. Mouse-up always passes.
             thread_local! {
                 static LAST_MOVE: std::cell::Cell<Option<std::time::Instant>> =
                     std::cell::Cell::new(None);
@@ -3008,7 +3009,7 @@ impl App {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                     LAST_MOVE.with(|c| {
                         let now = std::time::Instant::now();
-                        if c.get().map_or(true, |t| now.duration_since(t) >= Duration::from_millis(8)) {
+                        if c.get().map_or(true, |t| now.duration_since(t) >= Duration::from_millis(16)) {
                             c.set(Some(now));
                             Some(Message::TileDragMove(position.y))
                         } else {
