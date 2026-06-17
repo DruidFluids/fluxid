@@ -1287,23 +1287,57 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
     let card = |pi: usize| -> Element<'a, Message> {
         let pack = &packs[pi];
         let installed_n = pack.themes.iter().filter(|t| is_installed(&t.name)).count();
+        let all_in = installed_n == pack.themes.len();
         let status: Element<'a, Message> = if installed_n == 0 {
             status_pill("Available".into(), false, p)
-        } else if installed_n == pack.themes.len() {
+        } else if all_in {
             status_pill("Installed".into(), true, p)
         } else {
             status_pill(format!("{} / {}", installed_n, pack.themes.len()), true, p)
         };
         let mut sw = row![].spacing(3);
         for t in pack.themes.iter().take(6) { sw = sw.push(chip(&t.accent, p)); }
-        button(column![
+        // One-click "Install" (all themes in the pack — reuses ThemeStoreTogglePack)
+        // and "Browse" (open the pack's theme list), stacked under the status pill.
+        let install_btn = button(
+            text(if all_in { "Installed \u{2713}" } else { "Install all" }).size(10)
+        )
+        .width(Length::Fixed(88.0))
+        .padding(iced::Padding { top: 3.0, right: 8.0, bottom: 3.0, left: 8.0 })
+        .style(move |_: &iced::Theme, st: button::Status| {
+            let hover = matches!(st, button::Status::Hovered);
+            button::Style {
+                background: Some(iced::Background::Color(
+                    if all_in { Color::TRANSPARENT } else if hover { Color { a: 0.82, ..p.accent } } else { p.accent }
+                )),
+                border: Border { radius: 6.0.into(), ..Border::default() },
+                text_color: if all_in { p.muted } else { Color::WHITE },
+                ..Default::default()
+            }
+        })
+        .on_press_maybe(if all_in { None } else { Some(Message::ThemeStoreTogglePack(pi, true)) });
+        let browse_btn = button(text("Browse").size(10))
+            .width(Length::Fixed(88.0))
+            .padding(iced::Padding { top: 3.0, right: 8.0, bottom: 3.0, left: 8.0 })
+            .style(move |_: &iced::Theme, st: button::Status| {
+                let hover = matches!(st, button::Status::Hovered);
+                button::Style {
+                    background: Some(iced::Background::Color(if hover { Color { a: 0.12, ..p.accent } } else { Color::TRANSPARENT })),
+                    border: Border { radius: 6.0.into(), width: 1.0, color: Color { a: 0.45, ..p.accent } },
+                    text_color: p.accent,
+                    ..Default::default()
+                }
+            })
+            .on_press(Message::ThemeStoreOpenFranchise(pi));
+        let actions = column![status, install_btn, browse_btn].spacing(4).align_x(iced::Alignment::End);
+        container(column![
             row![
                 text(pack.franchise.clone()).size(11)
                     .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
                     .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
                 Space::with_width(Length::Fill),
-                status,
-            ].align_y(iced::Alignment::Center),
+                actions,
+            ].align_y(iced::Alignment::Start),
             text(format!("{} themes", pack.themes.len())).size(9)
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             Space::with_height(6),
@@ -1311,15 +1345,11 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
         ].spacing(2))
         .width(Length::Fill)
         .padding(10)
-        .style(move |_: &iced::Theme, status: button::Status| {
-            let hover = matches!(status, button::Status::Hovered);
-            button::Style {
-                background: Some(iced::Background::Color(p.tile)),
-                border: Border { radius: 8.0.into(), width: 1.0, color: if hover { p.accent } else { Color::TRANSPARENT } },
-                ..Default::default()
-            }
+        .style(move |_: &iced::Theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(p.tile)),
+            border: Border { radius: 8.0.into(), ..Border::default() },
+            ..Default::default()
         })
-        .on_press(Message::ThemeStoreOpenFranchise(pi))
         .into()
     };
 
