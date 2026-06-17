@@ -1298,17 +1298,29 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
         } else {
             format!("{} themes", pack.themes.len())
         };
-        let install_btn = button(text(if all_in { "Installed \u{2713}" } else { "Install all" }).size(10))
-            .width(Length::Fixed(88.0))
-            .padding(iced::Padding { top: 4.0, right: 8.0, bottom: 4.0, left: 8.0 })
+        // Primary download CTA — bolder + a soft accent glow so it clearly reads as
+        // the main action; "Browse" stays a quiet secondary button.
+        let install_btn = button(
+            text(if all_in { "Installed \u{2713}" } else { "Install all" }).size(11)
+                .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+        )
+            .width(Length::Fixed(98.0))
+            .padding(iced::Padding { top: 5.0, right: 12.0, bottom: 5.0, left: 12.0 })
             .style(move |_: &iced::Theme, st: button::Status| {
                 let hover = matches!(st, button::Status::Hovered);
                 button::Style {
                     background: Some(iced::Background::Color(
-                        if all_in { Color::TRANSPARENT } else if hover { Color { a: 0.82, ..p.accent } } else { p.accent }
+                        if all_in { Color::TRANSPARENT } else if hover { Color { a: 0.9, ..p.accent } } else { p.accent }
                     )),
-                    border: Border { radius: 6.0.into(), ..Border::default() },
+                    border: Border { radius: 7.0.into(), ..Border::default() },
                     text_color: if all_in { p.muted } else { Color::WHITE },
+                    shadow: if all_in { iced::Shadow::default() } else {
+                        iced::Shadow {
+                            color: Color { a: if hover { 0.6 } else { 0.4 }, ..p.accent },
+                            offset: iced::Vector::new(0.0, 1.0),
+                            blur_radius: if hover { 9.0 } else { 5.0 },
+                        }
+                    },
                     ..Default::default()
                 }
             })
