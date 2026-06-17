@@ -456,6 +456,9 @@ mod imp {
             .map_err(|e| err(format!("copy uninstaller: {e}")))?;
         rep.step("Installed uninstaller".to_string());
 
+        // Drop the license alongside the app so every user has the terms locally.
+        let _ = std::fs::write(dir.join("LICENSE.txt"), include_str!("../../../LICENSE"));
+
         // 3. Start Menu shortcut (always).
         let sm = start_menu_dir(opts.scope)?;
         std::fs::create_dir_all(&sm).ok();

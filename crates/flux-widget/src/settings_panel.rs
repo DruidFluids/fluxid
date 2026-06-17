@@ -221,11 +221,13 @@ pub fn view<'a>(
         .on_press(msg).into()
     };
     // Paired slider with C# default-value marker + thin accent/muted track.
-    let pslider = |label_text: &str, value_text: String, min: f32, max: f32, val: f32, default: f32, step: f32, msg: fn(f32)->Message| -> Element<'a, Message> {
-        column![
-            row![fl(label_text), Space::with_width(Length::Fill), vl(value_text)],
-            marked_slider(min, max, val, step, default, p, msg),
-        ].spacing(2).width(Length::FillPortion(1)).into()
+    let pslider = |label_text: &str, value_text: String, min: f32, max: f32, val: f32, default: f32, step: f32, msg: fn(f32)->Message, tip: &'static str| -> Element<'a, Message> {
+        crate::style::with_tip(
+            column![
+                row![fl(label_text), Space::with_width(Length::Fill), vl(value_text)],
+                marked_slider(min, max, val, step, default, p, msg),
+            ].spacing(2).width(Length::FillPortion(1)),
+            tip, p)
     };
 
     // ════════════════════════════════════════════════════════════
@@ -238,11 +240,13 @@ pub fn view<'a>(
     for (i, (display, internal)) in TILES.iter().zip(TILE_INTERNAL.iter()).enumerate() {
         let visible = settings.visible_tiles.iter().any(|v| v == internal);
         let name = internal.to_string();
-        let t: Element<'a, Message> = row![
-            toggler(visible).size(14).on_toggle(move |on| Message::ToggleTile(name.clone(), on)).style(crate::style::toggler_style(p)),
-            text(display.to_string()).size(11)
-                .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-        ].spacing(6).align_y(iced::Alignment::Center).width(Length::FillPortion(1)).into();
+        let t: Element<'a, Message> = crate::style::with_tip(
+            row![
+                toggler(visible).size(14).on_toggle(move |on| Message::ToggleTile(name.clone(), on)).style(crate::style::toggler_style(p)),
+                text(display.to_string()).size(11)
+                    .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+            ].spacing(6).align_y(iced::Alignment::Center).width(Length::FillPortion(1)),
+            &format!("Show or hide the {display} tile on the widget."), p);
         if i < 3 { t_r0.push(t); } else { t_r1.push(t); }
     }
     let tiles_grid = column![row(t_r0).spacing(4), row(t_r1).spacing(4)].spacing(6);
@@ -293,8 +297,8 @@ pub fn view<'a>(
         Space::with_width(2),
         driver_status,
         Space::with_width(Length::Fill),
-        seg("\u{00B0}C".into(), !fahrenheit, Message::SetFahrenheit(false)),
-        seg("\u{00B0}F".into(), fahrenheit, Message::SetFahrenheit(true)),
+        crate::style::with_tip(seg("\u{00B0}C".into(), !fahrenheit, Message::SetFahrenheit(false)), "Show temperatures in Celsius.", p),
+        crate::style::with_tip(seg("\u{00B0}F".into(), fahrenheit, Message::SetFahrenheit(true)), "Show temperatures in Fahrenheit.", p),
     ].align_y(iced::Alignment::Center).spacing(0).into();
 
     // ── Tile Labels: CPU/GPU with Auto/Custom pills ──
@@ -331,26 +335,26 @@ pub fn view<'a>(
     let tile_labels = column![
         row![
             label_cell("CPU"),
-            name_input(&settings.cpu_custom_name, &cpu_name, cpu_auto, Message::SetCpuName),
+            crate::style::with_tip(name_input(&settings.cpu_custom_name, &cpu_name, cpu_auto, Message::SetCpuName), "Type your own label for the CPU tile instead of the detected name.", p),
             Space::with_width(8),
-            pill("Auto".into(), cpu_auto, Message::SetCpuName(String::new())),
+            crate::style::with_tip(pill("Auto".into(), cpu_auto, Message::SetCpuName(String::new())), "Show the auto-detected CPU name.", p),
             Space::with_width(4),
-            pill("Custom".into(), !cpu_auto, Message::Noop),
+            crate::style::with_tip(pill("Custom".into(), !cpu_auto, Message::Noop), "Use the custom CPU name you typed.", p),
         ].spacing(0).align_y(iced::Alignment::Center),
         row![
             label_cell("GPU"),
-            name_input(&settings.gpu_custom_name, &gpu_name, gpu_auto, Message::SetGpuName),
+            crate::style::with_tip(name_input(&settings.gpu_custom_name, &gpu_name, gpu_auto, Message::SetGpuName), "Type your own label for the GPU tile instead of the detected name.", p),
             Space::with_width(8),
-            pill("Auto".into(), gpu_auto, Message::SetGpuName(String::new())),
+            crate::style::with_tip(pill("Auto".into(), gpu_auto, Message::SetGpuName(String::new())), "Show the auto-detected GPU name.", p),
             Space::with_width(4),
-            pill("Custom".into(), !gpu_auto, Message::Noop),
+            crate::style::with_tip(pill("Custom".into(), !gpu_auto, Message::Noop), "Use the custom GPU name you typed.", p),
         ].spacing(0).align_y(iced::Alignment::Center),
     ].spacing(8);
 
     // ── Layout ──
     let layout_pills = row![
-        seg("Horizontal".into(), settings.orientation == Orientation::Horizontal, Message::SetOrientation(Orientation::Horizontal)),
-        seg("Vertical".into(), settings.orientation == Orientation::Vertical, Message::SetOrientation(Orientation::Vertical)),
+        crate::style::with_tip(seg("Horizontal".into(), settings.orientation == Orientation::Horizontal, Message::SetOrientation(Orientation::Horizontal)), "Lay the tiles out side by side (wide).", p),
+        crate::style::with_tip(seg("Vertical".into(), settings.orientation == Orientation::Vertical, Message::SetOrientation(Orientation::Vertical)), "Stack the tiles top to bottom (tall).", p),
     ].spacing(4);
 
     // ── Behavior: togglers in pairs + hotkey + paired sliders ──
@@ -376,28 +380,32 @@ pub fn view<'a>(
     // edge-snap is on (enabling edge-snap turns it on by default). When edge-snap
     // is off the startup toggle takes that slot (renamed "Run at startup").
     let startup_tip = "Launch the widget when you sign in to Windows. Uses your user account only \u{2014} no admin rights needed.";
+    let click_tip = "Make the widget click-through \u{2014} the mouse passes through it to whatever's behind. Toggle it back with the click-through hotkey below.";
+    let always_tip = "Keep the widget pinned above all other windows so it's never hidden behind them.";
+    let snap_edges_tip = "Dock the widget flush against screen edges as you drag it close.";
+    let _ = &sw; // (toggles below all carry tooltips)
     let snap_block: Element<'a, Message> = if settings.snap_to_edges {
         column![
             row![
-                sw("Snap to edges", settings.snap_to_edges, Message::SetSnap),
+                sw_tt("Snap to edges", settings.snap_to_edges, Message::SetSnap, snap_edges_tip),
                 sw_tt("Snap to windows", settings.snap_to_windows, Message::SetSnapWindows,
                     "When snapping is on, the widget also docks to the outer edges of other windows."),
             ].spacing(8),
             column![
                 row![fl("Snap distance"), Space::with_width(Length::Fill), vl(format!("{:.0}px", settings.snap_distance))],
-                marked_slider(0.0, 50.0, settings.snap_distance, 1.0, 20.0, p, Message::SetSnapDistance),
+                crate::style::with_tip(marked_slider(0.0, 50.0, settings.snap_distance, 1.0, 20.0, p, Message::SetSnapDistance), "How close (in pixels) the widget must be to an edge or window before it snaps.", p),
             ].spacing(2),
-            sw_tt("Run at Windows startup", settings.run_at_startup, Message::SetRunAtStartup, startup_tip),
+            sw_tt("Click-through", settings.click_through, Message::SetClickThrough, click_tip),
         ].spacing(4).into()
     } else {
         row![
-            sw("Snap to edges", settings.snap_to_edges, Message::SetSnap),
-            sw_tt("Run at startup", settings.run_at_startup, Message::SetRunAtStartup, startup_tip),
+            sw_tt("Snap to edges", settings.snap_to_edges, Message::SetSnap, snap_edges_tip),
+            sw_tt("Click-through", settings.click_through, Message::SetClickThrough, click_tip),
         ].spacing(8).into()
     };
 
     let behavior = column![
-        row![sw("Always on top", settings.always_on_top, Message::SetAlwaysOnTop), sw("Click-through", settings.click_through, Message::SetClickThrough)].spacing(8),
+        row![sw_tt("Always on top", settings.always_on_top, Message::SetAlwaysOnTop, always_tip), sw_tt("Run at Windows startup", settings.run_at_startup, Message::SetRunAtStartup, startup_tip)].spacing(8),
         snap_block,
         Space::with_height(4),
         fl("Click-through hotkey"),
@@ -411,22 +419,22 @@ pub fn view<'a>(
         Space::with_height(4),
         // Paired sliders: Opacity + Update interval
         row![
-            pslider("Opacity", format!("{:.0}%", settings.widget_opacity * 100.0), 0.3, 1.0, settings.widget_opacity, 0.9, 0.01, Message::SetOpacity),
+            pslider("Opacity", format!("{:.0}%", settings.widget_opacity * 100.0), 0.3, 1.0, settings.widget_opacity, 0.9, 0.01, Message::SetOpacity, "How see-through the widget is (lower = more transparent)."),
             Space::with_width(8),
-            pslider("Update interval", format!("{} ms", settings.update_interval_ms), 250.0, 5000.0, settings.update_interval_ms as f32, 1500.0, 250.0, Message::SetInterval),
+            pslider("Update interval", format!("{} ms", settings.update_interval_ms), 250.0, 5000.0, settings.update_interval_ms as f32, 1500.0, 250.0, Message::SetInterval, "How often the stats refresh, in milliseconds."),
         ],
     ].spacing(4);
 
     // ── Size: sliders that change tile/widget dimensions (live in Appearance) ──
     let sizing = column![
         row![
-            pslider("UI scale", format!("{:.2}x", settings.ui_scale), 0.75, 1.5, settings.ui_scale, 1.0, 0.01, Message::SetUiScale),
+            pslider("UI scale", format!("{:.2}x", settings.ui_scale), 0.75, 1.5, settings.ui_scale, 1.0, 0.01, Message::SetUiScale, "Scale the whole widget and its text up or down."),
             Space::with_width(8),
-            pslider("Tile width", format!("{:.0}px", settings.tile_width), 110.0, 200.0, settings.tile_width, 130.0, 5.0, Message::SetTileWidth),
+            pslider("Tile width", format!("{:.0}px", settings.tile_width), 110.0, 200.0, settings.tile_width, 130.0, 5.0, Message::SetTileWidth, "Width of each tile, in pixels."),
         ],
         column![
             row![fl("Tile height"), Space::with_width(Length::Fill), vl(format!("{:.0}px", settings.tile_height))],
-            marked_slider(80.0, 150.0, settings.tile_height, 2.0, 110.0, p, Message::SetTileHeight),
+            crate::style::with_tip(marked_slider(80.0, 150.0, settings.tile_height, 2.0, 110.0, p, Message::SetTileHeight), "Height of each tile, in pixels.", p),
         ].spacing(2),
         sw_tt("Round widget corners", settings.round_corners, Message::SetRoundCorners,
             "Round the outer corners of the widget window (Windows 11)."),
@@ -440,13 +448,13 @@ pub fn view<'a>(
         row![
             column![fl("Traffic indicator"), tooltip(cycle_btn(traffic_label, Message::TrafficCycle), tip_box("Click to cycle: Off > Blink > Fade > Glow", p), TipPos::FollowCursor)].width(Length::FillPortion(1)).spacing(2),
             Space::with_width(12),
-            pslider("Arrow position", format!("{:.0}px", settings.network_arrow_spacing.min(8.0)), 0.0, 8.0, settings.network_arrow_spacing.min(8.0), 5.0, 1.0, Message::SetArrowSpacing),
+            pslider("Arrow position", format!("{:.0}px", settings.network_arrow_spacing.min(8.0)), 0.0, 8.0, settings.network_arrow_spacing.min(8.0), 5.0, 1.0, Message::SetArrowSpacing, "Shift the Network up/down arrows left or right."),
         ],
         Space::with_height(4),
         row![
-            column![fl("Monitor adapter"), pick_list(adapters, selected_adapter, Message::SetAdapter).text_size(11).width(Length::Fill).style(crate::style::pick_list_style(p))].width(Length::FillPortion(1)).spacing(2),
+            column![fl("Monitor adapter"), crate::style::with_tip(pick_list(adapters, selected_adapter, Message::SetAdapter).text_size(11).width(Length::Fill).style(crate::style::pick_list_style(p)), "Choose which network adapter the Network tile measures.", p)].width(Length::FillPortion(1)).spacing(2),
             Space::with_width(12),
-            pslider("Arrow size", signed(settings.arrow_font_offset), -5.0, 10.0, settings.arrow_font_offset as f32, 0.0, 1.0, Message::SetArrowFontOffset),
+            pslider("Arrow size", signed(settings.arrow_font_offset), -5.0, 10.0, settings.arrow_font_offset as f32, 0.0, 1.0, Message::SetArrowFontOffset, "Make the Network direction arrows larger or smaller."),
         ],
     ].spacing(2);
 
@@ -457,13 +465,13 @@ pub fn view<'a>(
         row![
             column![fl("Tile label"), tooltip(cycle_btn(disk_label_text, Message::DiskLabelCycle), tip_box("Click to cycle: Drive letter, Model, Both", p), TipPos::FollowCursor)].width(Length::FillPortion(1)).spacing(2),
             Space::with_width(12),
-            pslider("R: / W: position", format!("{:.0}px", settings.disk_label_spacing.min(14.0)), 0.0, 14.0, settings.disk_label_spacing.min(14.0), 8.0, 1.0, Message::SetDiskLabelSpacing),
+            pslider("R: / W: position", format!("{:.0}px", settings.disk_label_spacing.min(14.0)), 0.0, 14.0, settings.disk_label_spacing.min(14.0), 8.0, 1.0, Message::SetDiskLabelSpacing, "Shift the Disk R: / W: labels left or right."),
         ],
         Space::with_height(4),
         row![
-            column![fl("Monitor disk"), pick_list(disks, selected_disk, Message::SetDisk).text_size(11).width(Length::Fill).style(crate::style::pick_list_style(p))].width(Length::FillPortion(1)).spacing(2),
+            column![fl("Monitor disk"), crate::style::with_tip(pick_list(disks, selected_disk, Message::SetDisk).text_size(11).width(Length::Fill).style(crate::style::pick_list_style(p)), "Choose which disk the Disk tile measures.", p)].width(Length::FillPortion(1)).spacing(2),
             Space::with_width(12),
-            pslider("R: / W: size", signed(settings.disk_label_font_offset), -5.0, 10.0, settings.disk_label_font_offset as f32, 0.0, 1.0, Message::SetDiskLabelFontOffset),
+            pslider("R: / W: size", signed(settings.disk_label_font_offset), -5.0, 10.0, settings.disk_label_font_offset as f32, 0.0, 1.0, Message::SetDiskLabelFontOffset, "Make the Disk R: / W: labels larger or smaller."),
         ],
     ].spacing(2);
 
@@ -471,11 +479,13 @@ pub fn view<'a>(
     // tile's visibility, label, per-field toggles, and its own options, so all
     // of a tile's settings live in one place. ──
     let _ = (&tiles_grid, &tile_labels); // superseded by the per-tile sections
-    let field_tog = |label: &str, on: bool, key: &'static str| -> Element<'a, Message> {
-        row![
-            toggler(on).size(13).on_toggle(move |v| Message::SetTileField(key.to_string(), v)).style(crate::style::toggler_style(p)),
-            text(label.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-        ].spacing(6).align_y(iced::Alignment::Center).into()
+    let field_tog = |label: &str, on: bool, key: &'static str, tip: &'static str| -> Element<'a, Message> {
+        crate::style::with_tip(
+            row![
+                toggler(on).size(13).on_toggle(move |v| Message::SetTileField(key.to_string(), v)).style(crate::style::toggler_style(p)),
+                text(label.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+            ].spacing(6).align_y(iced::Alignment::Center),
+            tip, p)
     };
     let open_is = |n: &str| tiles_open.as_deref() == Some(n);
 
@@ -516,7 +526,7 @@ pub fn view<'a>(
             pill("Custom".into(), !cpu_auto, Message::Noop),
         ].spacing(0).align_y(iced::Alignment::Center),
         temp_row,
-        row![field_tog("Model", settings.cpu_show_name, "cpu_name"), field_tog("Temperature", settings.cpu_show_temp, "cpu_temp"), field_tog("Clock", settings.cpu_show_clock, "cpu_clock")].spacing(10),
+        row![field_tog("Model", settings.cpu_show_name, "cpu_name", "Show the CPU's model name on the tile."), field_tog("Temperature", settings.cpu_show_temp, "cpu_temp", "Show CPU temperature (needs the optional sensor driver below)."), field_tog("Clock", settings.cpu_show_clock, "cpu_clock", "Show the CPU's live clock speed in MHz.")].spacing(10),
         Space::with_height(2),
         cpu_driver,
     ].spacing(6).into();
@@ -528,40 +538,34 @@ pub fn view<'a>(
             Space::with_width(4),
             pill("Custom".into(), !gpu_auto, Message::Noop),
         ].spacing(0).align_y(iced::Alignment::Center),
-        row![field_tog("Model", settings.gpu_show_name, "gpu_name"), field_tog("Temperature", settings.gpu_show_temp, "gpu_temp"), field_tog("Clock", settings.gpu_show_clock, "gpu_clock"), field_tog("VRAM", settings.gpu_show_vram, "gpu_vram")].spacing(10),
+        row![field_tog("Model", settings.gpu_show_name, "gpu_name", "Show the GPU's model name on the tile."), field_tog("Temperature", settings.gpu_show_temp, "gpu_temp", "Show the GPU's temperature."), field_tog("Clock", settings.gpu_show_clock, "gpu_clock", "Show the GPU's live core clock in MHz."), field_tog("VRAM", settings.gpu_show_vram, "gpu_vram", "Show GPU video-memory used / total.")].spacing(10),
     ].spacing(6).into();
     let ram_body: Element<'a, Message> =
-        row![field_tog("Speed / type", settings.ram_show_speed, "ram_speed"), field_tog("Usage detail", settings.ram_show_details, "ram_details")].spacing(10).into();
+        row![field_tog("Speed / type", settings.ram_show_speed, "ram_speed", "Show the RAM's type and speed (e.g. DDR5-6000)."), field_tog("Usage detail", settings.ram_show_details, "ram_details", "Show used / total amount under the percentage.")].spacing(10).into();
     let net_body: Element<'a, Message> = column![
-        row![field_tog("Download", settings.net_show_down, "net_down"), field_tog("Upload", settings.net_show_up, "net_up")].spacing(10),
-        row![field_tog("Upload on top", settings.net_upload_first, "net_swap")].spacing(10),
+        row![field_tog("Download", settings.net_show_down, "net_down", "Show the download (incoming) traffic line."), field_tog("Upload", settings.net_show_up, "net_up", "Show the upload (outgoing) traffic line.")].spacing(10),
+        row![field_tog("Upload on top", settings.net_upload_first, "net_swap", "Put the upload line above the download line on the tile.")].spacing(10),
         network,
     ].spacing(6).into();
     let disk_body: Element<'a, Message> = column![
-        row![field_tog("Read", settings.disk_show_read, "disk_read"), field_tog("Write", settings.disk_show_write, "disk_write")].spacing(10),
+        row![field_tog("Read", settings.disk_show_read, "disk_read", "Show the disk read-speed line."), field_tog("Write", settings.disk_show_write, "disk_write", "Show the disk write-speed line.")].spacing(10),
         disk,
     ].spacing(6).into();
-    let clock_body: Element<'a, Message> = row![field_tog("Date", settings.clock_show_date, "clock_date")].into();
+    let clock_body: Element<'a, Message> = row![field_tog("Date", settings.clock_show_date, "clock_date", "Show the date beneath the time on the Clock tile.")].into();
     let mut bodies = [Some(clock_body), Some(cpu_body), Some(gpu_body), Some(ram_body), Some(net_body), Some(disk_body)];
 
     // A small "Shown / Hidden" chip that toggles the tile's visibility (right
     // side of each list row) — replaces the old left-edge switch.
     let vis_chip = |shown: bool, internal: String| -> Element<'a, Message> {
-        let (label, col) = if shown { ("Shown", p.accent) } else { ("Hidden", p.muted) };
-        button(text(label).size(10).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-            .style(move |_| iced::widget::text::Style { color: Some(col) }))
-            .padding(iced::Padding { top: 3.0, right: 10.0, bottom: 3.0, left: 10.0 })
-            .style(move |_: &iced::Theme, status: button::Status| {
-                let a = if matches!(status, button::Status::Hovered) { 0.30 } else { 0.16 };
-                button::Style {
-                    background: Some(iced::Background::Color(iced::Color { a, ..col })),
-                    border: Border { radius: 10.0.into(), ..Border::default() },
-                    text_color: col,
-                    ..Default::default()
-                }
-            })
-            .on_press(Message::ToggleTile(internal, !shown))
-            .into()
+        // A self-explanatory LED toggle: on = tile shown, off = hidden.
+        container(
+            toggler(shown).size(15)
+                .on_toggle(move |v| Message::ToggleTile(internal.clone(), v))
+                .style(crate::style::toggler_style(p))
+        )
+        // Nudge down so it sits level with the chevron on the right.
+        .padding(iced::Padding { top: 4.0, right: 0.0, bottom: 0.0, left: 0.0 })
+        .into()
     };
     // Thin divider between list rows.
     let row_divider = move || -> Element<'a, Message> {
@@ -756,11 +760,8 @@ pub fn view<'a>(
     //  RIGHT COLUMN  (Appearance / Font / Remote / Updates)
     // ════════════════════════════════════════════════════════════
 
-    // ── Saved Themes row ──
-    let mut saved_row = row![
-        text("Saved Themes").size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
-        Space::with_width(8),
-    ].spacing(0).align_y(iced::Alignment::Center);
+    // ── Saved Presets row (label sits centered above it) ──
+    let mut saved_row = row![].spacing(0).align_y(iced::Alignment::Center);
     for i in 0..5u8 {
         let idx = i as usize;
         let preset = settings.presets.get(idx).filter(|p| !p.accent.is_empty());
@@ -811,6 +812,15 @@ pub fn view<'a>(
                 .padding([3, 6]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 3.0.into(), ..Border::default() }, ..Default::default() })
                 .on_press(Message::ExportAppearance),
             tip_box("Export the current appearance as a share code to the clipboard.", p), TipPos::FollowCursor,
+        )
+    );
+    saved_row = saved_row.push(Space::with_width(3));
+    saved_row = saved_row.push(
+        tooltip(
+            button(text("\u{1F4E5}").size(12).font(crate::style::ICONS).style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
+                .padding([3, 6]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 3.0.into(), ..Border::default() }, ..Default::default() })
+                .on_press(Message::OpenThemeStore),
+            tip_box("Download more themes & skins from the Theme Store.", p), TipPos::FollowCursor,
         )
     );
     if !appearance_status.is_empty() {
@@ -902,7 +912,6 @@ pub fn view<'a>(
         .on_press_maybe(undo_on.then_some(Message::UndoAppearance)),
         "Undo to the previous appearance (color shows what you'll revert to)", p);
     let skins_row = row![
-        cbtn("\u{1F4E5}", false, Message::OpenThemeStore, "Download more themes & skins"),
         undo_btn,
         dice,
         Space::with_width(4),
@@ -997,6 +1006,9 @@ pub fn view<'a>(
     };
 
     let appearance = column![
+        container(text("Saved Presets").size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
+            .width(Length::Fill).center_x(Length::Fill),
+        Space::with_height(3),
         container(saved_row).width(Length::Fill).center_x(Length::Fill),
         Space::with_height(4),
         skins_box,
@@ -1005,7 +1017,7 @@ pub fn view<'a>(
         Space::with_height(4),
         color_editor,
         row![fl("Muted text visibility"), Space::with_width(Length::Fill), vl(format!("{:.2}", settings.muted_contrast))],
-        marked_slider(0.5, 1.6, settings.muted_contrast, 0.01, 1.0, p, Message::SetMutedContrast),
+        crate::style::with_tip(marked_slider(0.5, 1.6, settings.muted_contrast, 0.01, 1.0, p, Message::SetMutedContrast), "Brightness of secondary (muted) text like tile names and units.", p),
     ].spacing(3);
 
     // ── Font: sync toggle + font pickers + 3-col size sliders ──
@@ -1040,10 +1052,15 @@ pub fn view<'a>(
                     }
                     _ => FONT_DEFAULT.to_string(),
                 };
-                pick_list(o, Some(sel), move |s: String| {
+                let tip = match slot {
+                    0 => "Font for the main value numbers.",
+                    1 => "Font for the secondary text (tile names).",
+                    _ => "Font for the unit indicators (\u{00B0}C, %, MHz).",
+                };
+                crate::style::with_tip(pick_list(o, Some(sel), move |s: String| {
                     let name = if s == FONT_DEFAULT { String::new() } else { s };
                     Message::SetFont(slot, name)
-                }).text_size(11).width(Length::Fill).style(crate::style::pick_list_style(p)).into()
+                }).text_size(11).width(Length::Fill).style(crate::style::pick_list_style(p)), tip, p)
             };
             row![
                 column![fl("Primary font"), font_picker(0, &settings.primary_font)].width(Length::FillPortion(1)).spacing(2),
@@ -1055,17 +1072,17 @@ pub fn view<'a>(
         row![
             column![
                 fl("Primary"),
-                marked_slider(-5.0, 5.0, settings.primary_font_offset as f32, 1.0, 0.0, p, Message::SetPrimaryFontOffset),
+                crate::style::with_tip(marked_slider(-5.0, 5.0, settings.primary_font_offset as f32, 1.0, 0.0, p, Message::SetPrimaryFontOffset), "Nudge the main value text (numbers) larger or smaller.", p),
                 vl(signed(settings.primary_font_offset)),
             ].width(Length::FillPortion(1)).spacing(2).align_x(iced::Alignment::Center),
             column![
                 fl("Secondary"),
-                marked_slider(-5.0, 5.0, settings.secondary_font_offset as f32, 1.0, 0.0, p, Message::SetSecondaryFontOffset),
+                crate::style::with_tip(marked_slider(-5.0, 5.0, settings.secondary_font_offset as f32, 1.0, 0.0, p, Message::SetSecondaryFontOffset), "Nudge the secondary text (names) larger or smaller.", p),
                 vl(signed(settings.secondary_font_offset)),
             ].width(Length::FillPortion(1)).spacing(2).align_x(iced::Alignment::Center),
             column![
                 fl("Indicators"),
-                marked_slider(-5.0, 5.0, settings.indicator_font_offset as f32, 1.0, 0.0, p, Message::SetIndicatorFontOffset),
+                crate::style::with_tip(marked_slider(-5.0, 5.0, settings.indicator_font_offset as f32, 1.0, 0.0, p, Message::SetIndicatorFontOffset), "Nudge the unit indicators (°C, %, MHz) larger or smaller.", p),
                 vl(signed(settings.indicator_font_offset)),
             ].width(Length::FillPortion(1)).spacing(2).align_x(iced::Alignment::Center),
         ].spacing(8),
@@ -1104,10 +1121,10 @@ pub fn view<'a>(
     // Mode pills (Off → Manual → Auto → Auto-install, increasing automation).
     use flux_core::settings::UpdateMode;
     let mode_row = row![
-        pill("Off".into(), update.mode == UpdateMode::Off, Message::SetUpdateMode("Off".into())),
-        pill("Manual".into(), update.mode == UpdateMode::Manual, Message::SetUpdateMode("Manual".into())),
-        pill("Auto".into(), update.mode == UpdateMode::Auto, Message::SetUpdateMode("Auto".into())),
-        pill("Auto-install".into(), update.mode == UpdateMode::AutoInstall, Message::SetUpdateMode("AutoInstall".into())),
+        crate::style::with_tip(pill("Off".into(), update.mode == UpdateMode::Off, Message::SetUpdateMode("Off".into())), "Never check for updates.", p),
+        crate::style::with_tip(pill("Manual".into(), update.mode == UpdateMode::Manual, Message::SetUpdateMode("Manual".into())), "Only check when you press Check now.", p),
+        crate::style::with_tip(pill("Auto".into(), update.mode == UpdateMode::Auto, Message::SetUpdateMode("Auto".into())), "Check on launch and periodically, and flag the gear when an update is waiting.", p),
+        crate::style::with_tip(pill("Auto-install".into(), update.mode == UpdateMode::AutoInstall, Message::SetUpdateMode("AutoInstall".into())), "Automatically download and install new versions (still SHA-256 verified).", p),
         Space::with_width(Length::Fill),
     ].spacing(4).align_y(iced::Alignment::Center);
     updates_col = updates_col.push(mode_row);
@@ -1126,10 +1143,10 @@ pub fn view<'a>(
     if update.progress.is_none() && update.mode != UpdateMode::Off {
         let mut action_row = row![Space::with_width(Length::Fill)].align_y(iced::Alignment::Center);
         if update.available.is_some() {
-            action_row = action_row.push(inline_btn("Download", Message::DownloadUpdate));
-            action_row = action_row.push(inline_btn("Later", Message::UpdateLater));
+            action_row = action_row.push(crate::style::with_tip(inline_btn("Download", Message::DownloadUpdate), "Download, verify, and install the available update now.", p));
+            action_row = action_row.push(crate::style::with_tip(inline_btn("Later", Message::UpdateLater), "Dismiss this update for now.", p));
         } else {
-            action_row = action_row.push(inline_btn("Check now", Message::CheckForUpdates));
+            action_row = action_row.push(crate::style::with_tip(inline_btn("Check now", Message::CheckForUpdates), "Check GitHub for a newer version right now.", p));
         }
         updates_col = updates_col.push(action_row);
     }
@@ -1157,8 +1174,8 @@ pub fn view<'a>(
     updates_col = updates_col.push(Space::with_height(6));
     updates_col = updates_col.push(
         row![
-            pill("Changelog".into(), !update.show_info, Message::SetUpdatesInfo(false)),
-            pill("Verification".into(), update.show_info, Message::SetUpdatesInfo(true)),
+            crate::style::with_tip(pill("Changelog".into(), !update.show_info, Message::SetUpdatesInfo(false)), "Show the latest release's notes.", p),
+            crate::style::with_tip(pill("Verification".into(), update.show_info, Message::SetUpdatesInfo(true)), "Explain how updates are verified (SHA-256 + VirusTotal).", p),
         ].spacing(4)
     );
     let body_md: String = if update.show_info {
@@ -1172,7 +1189,7 @@ pub fn view<'a>(
         }
     };
     updates_col = updates_col.push(
-        container(scrollable(changelog_md(&body_md, p)).width(Length::Fill).height(Length::Fill))
+        container(scrollable(container(changelog_md(&body_md, p)).padding(iced::Padding { top: 0.0, right: 14.0, bottom: 0.0, left: 0.0 })).width(Length::Fill).height(Length::Fill).style(crate::style::scrollable_style(p)))
             .padding(8).width(Length::Fill).height(Length::Fill)
             .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(crate::style::field_bg(p))), border: Border { radius: 6.0.into(), ..Border::default() }, ..Default::default() })
     );
@@ -1639,7 +1656,11 @@ pub(crate) fn marked_slider<'a>(min: f32, max: f32, val: f32, step: f32, default
     // wins; it has no handlers, so press/drag events fall through to the slider.
     let cursor_fix = mouse_area(Space::new(Length::Fill, Length::Fill))
         .interaction(iced::mouse::Interaction::Pointer);
-    stack![marker, sl, cursor_fix].height(Length::Fixed(18.0)).into()
+    // Vertically center the slider so its rail sits at the canvas centre — then
+    // the marker tick grows equally above and below it (iced's Stack top-anchors
+    // children, which otherwise leaves the rail off-centre).
+    let sl_centered = container(sl).height(Length::Fill).center_y(Length::Fill);
+    stack![marker, sl_centered, cursor_fix].height(Length::Fixed(20.0)).into()
 }
 
 // Canvas program that draws the default-value tick at the exact thumb position.
@@ -1663,7 +1684,9 @@ impl iced::widget::canvas::Program<Message> for DefaultMarker {
         let mut frame = Frame::new(renderer, bounds.size());
         // Matches iced slider: handle centre = 6 + frac*(width - 12).
         let cx = 6.0 + self.frac * (bounds.width - 12.0);
-        let h = 16.0_f32.min(bounds.height);
+        // Fill the box minus a 1px breathing margin, centred — so the tick's
+        // height above the rail and depth below it are always equal.
+        let h = (bounds.height - 2.0).max(0.0);
         let y = (bounds.height - h) / 2.0;
         let rect = Path::rectangle(
             iced::Point::new(cx - self.width / 2.0, y),

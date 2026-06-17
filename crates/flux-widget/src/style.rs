@@ -87,7 +87,9 @@ impl canvas::Program<Message> for ExpandChevron {
     ) -> Vec<canvas::Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let (w, h) = (bounds.width, bounds.height);
-        let (cx, cy) = (w / 2.0, h / 2.0);
+        // Nudge up slightly: a chevron's ink sits low, so the geometric centre
+        // reads below the line — this re-centres it visually with neighbours.
+        let (cx, cy) = (w / 2.0, h / 2.0 - h * 0.06);
         let half = w.min(h) * 0.30; // horizontal reach
         let amp = half * 0.52; // vertical amplitude — flatter = softer/less pointy
         let (y_out, y_in) = if self.open {
@@ -505,6 +507,35 @@ pub fn toggler_style(p: Palette) -> impl Fn(&iced::Theme, iced::widget::toggler:
             // Accent halo ring around the lit LED (off = plain grey bead).
             foreground_border_width: if on { if hovered { 3.5 } else { 2.5 } } else { 0.0 },
             foreground_border_color: Color { a: if hovered { 0.75 } else { 0.55 }, ..p.accent },
+        }
+    }
+}
+
+/// Premium-glow scrollbar: a faint recessed rail with a rounded accent scroller
+/// that brightens (and gains a halo rim) on hover/drag. Apply to every scrollable.
+pub fn scrollable_style(p: Palette) -> impl Fn(&iced::Theme, iced::widget::scrollable::Status) -> iced::widget::scrollable::Style + Copy {
+    use iced::widget::scrollable::{Rail, Scroller, Status, Style};
+    move |_t, status| {
+        let hot = match status {
+            Status::Hovered { is_horizontal_scrollbar_hovered: h, is_vertical_scrollbar_hovered: v } => h || v,
+            Status::Dragged { .. } => true,
+            _ => false,
+        };
+        let scroller_color = if hot { lerp(p.accent, Color::WHITE, 0.2) } else { Color { a: 0.8, ..p.accent } };
+        let scroller = Scroller {
+            color: scroller_color,
+            border: iced::Border { radius: 4.0.into(), width: if hot { 1.0 } else { 0.0 }, color: Color { a: 0.5, ..p.accent } },
+        };
+        let rail = Rail {
+            background: Some(iced::Background::Color(Color { a: 0.10, ..p.muted })),
+            border: iced::Border { radius: 4.0.into(), width: 0.0, color: Color::TRANSPARENT },
+            scroller,
+        };
+        Style {
+            container: iced::widget::container::Style::default(),
+            vertical_rail: rail,
+            horizontal_rail: rail,
+            gap: None,
         }
     }
 }

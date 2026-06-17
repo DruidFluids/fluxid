@@ -612,6 +612,10 @@ struct App {
     updates_show_info: bool,
     // When the most recent window opened, to drive the title-bar brand blip.
     last_window_open: Option<Instant>,
+    // Free-running clock for the "update available" gear-core pulse.
+    pulse_clock: Instant,
+    // Which Help-popup category accordions are expanded (collapsed by default).
+    help_expanded: std::collections::HashSet<usize>,
     appearance_status: String,
     theme_store_franchise: Option<usize>,
     // Theme Store: theme names ticked for "Install selected" inside a pack.
@@ -661,6 +665,7 @@ enum Message {
     WindowMoved(window::Id, Point),
     OpenSettings, HideWidget, SaveClose, ResetDefaults, Noop,
     OpenAlerts, OpenGameMode, OpenHelp, OpenUtilities, OpenRemote, ClosePopup(window::Id),
+    ToggleHelpSection(usize),
     OpenUrl(String),
     OpenThemeStore,
     ThemeStoreOpenFranchise(usize), ThemeStoreBack,
@@ -799,6 +804,8 @@ impl App {
             latest_changelog: None,
             updates_show_info: false,
             last_window_open: None,
+            pulse_clock: Instant::now(),
+            help_expanded: std::collections::HashSet::new(),
             appearance_status: String::new(),
             theme_store_franchise: None,
             theme_store_sel: std::collections::HashSet::new(),
@@ -1189,35 +1196,45 @@ impl App {
         let (l, t, r, b) = work_area()?;
         let sz = self.widget_size();
         let m = self.settings.snap_distance.max(0.0);
-        let mut x = pos.x; let mut y = pos.y;
-        let mut sr = false; let mut sb = false;
-        if (x - l).abs() < m { x = l; }
-        if ((x + sz.width) - r).abs() < m { x = r - sz.width; sr = true; }
-        if (y - t).abs() < m { y = t; }
-        if ((y + sz.height) - b).abs() < m { y = b - sz.height; sb = true; }
 
-        // Dock to our other windows' outer edges (e.g. the settings window).
+        // Gather EVERY snap candidate per axis — monitor edges and (if enabled)
+        // every overlapping window edge — then snap each axis to the *closest*
+        // candidate, regardless of whether it's a screen or window edge. The bool
+        // marks the monitor right/bottom edge (so resizes keep that corner anchored).
+        let mut xs: Vec<(f32, bool)> = vec![(l, false), (r - sz.width, true)];
+        let mut ys: Vec<(f32, bool)> = vec![(t, false), (b - sz.height, true)];
         if self.settings.snap_to_windows {
             for (l2, t2, r2, b2) in own_window_rects(&self.settings.snap_blocklist) {
-                // Only consider windows that overlap vertically/horizontally so
-                // we dock side-by-side rather than to a far-away window.
-                let v_overlap = y < b2 && (y + sz.height) > t2;
-                let h_overlap = x < r2 && (x + sz.width) > l2;
+                // Only dock to a window we overlap along the perpendicular axis,
+                // so we sit side-by-side / stacked rather than to a far-off window.
+                let v_overlap = pos.y < b2 && (pos.y + sz.height) > t2;
+                let h_overlap = pos.x < r2 && (pos.x + sz.width) > l2;
                 if v_overlap {
-                    if ((x + sz.width) - l2).abs() < m { x = l2 - sz.width; }
-                    else if (x - r2).abs() < m { x = r2; }
-                    // align top/bottom edges with the window
-                    if (y - t2).abs() < m { y = t2; }
-                    else if ((y + sz.height) - b2).abs() < m { y = b2 - sz.height; }
+                    xs.push((l2 - sz.width, false)); // our right edge to its left
+                    xs.push((r2, false));            // our left edge to its right
+                    ys.push((t2, false));            // align tops
+                    ys.push((b2 - sz.height, false));// align bottoms
                 }
                 if h_overlap {
-                    if ((y + sz.height) - t2).abs() < m { y = t2 - sz.height; }
-                    else if (y - b2).abs() < m { y = b2; }
-                    if (x - l2).abs() < m { x = l2; }
-                    else if ((x + sz.width) - r2).abs() < m { x = r2 - sz.width; }
+                    ys.push((t2 - sz.height, false));// our bottom to its top
+                    ys.push((b2, false));            // our top to its bottom
+                    xs.push((l2, false));            // align lefts
+                    xs.push((r2 - sz.width, false)); // align rights
                 }
             }
         }
+
+        // Closest within-threshold candidate per axis.
+        let pick = |cands: &[(f32, bool)], cur: f32| -> Option<(f32, bool)> {
+            cands.iter().copied()
+                .filter(|(target, _)| (target - cur).abs() < m)
+                .min_by(|a, b| (a.0 - cur).abs().partial_cmp(&(b.0 - cur).abs()).unwrap_or(std::cmp::Ordering::Equal))
+        };
+
+        let (mut x, mut sr) = (pos.x, false);
+        let (mut y, mut sb) = (pos.y, false);
+        if let Some((tx, is_right)) = pick(&xs, pos.x) { x = tx; sr = is_right; }
+        if let Some((ty, is_bottom)) = pick(&ys, pos.y) { y = ty; sb = is_bottom; }
 
         if (x - pos.x).abs() > 0.5 || (y - pos.y).abs() > 0.5 || sr || sb {
             Some((Point::new(x, y), sr, sb))
@@ -1460,6 +1477,7 @@ impl App {
             Message::OpenAlerts => self.open_popup(WindowKind::Alerts, popups::ALERTS_SIZE),
             Message::OpenGameMode => self.open_popup(WindowKind::GameMode, popups::GAME_MODE_SIZE),
             Message::OpenHelp => self.open_popup(WindowKind::Help, popups::HELP_SIZE),
+            Message::ToggleHelpSection(i) => { if !self.help_expanded.insert(i) { self.help_expanded.remove(&i); } Task::none() }
             Message::OpenUtilities => self.open_popup(WindowKind::Utilities, popups::UTILITIES_SIZE),
             Message::OpenRemote => self.open_popup(WindowKind::Remote, popups::REMOTE_SIZE),
             // ── Optional CPU sensor driver (PawnIO) ──
@@ -2543,7 +2561,7 @@ impl App {
             }
             WindowKind::Alerts => popups::alerts_view(&self.settings, p, id),
             WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),
-            WindowKind::Help => popups::help_view(&self.settings, p, id),
+            WindowKind::Help => popups::help_view(&self.help_expanded, p, id),
             WindowKind::Updated => {
                 let ver = self.pending_update_popup.clone()
                     .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
@@ -2770,16 +2788,24 @@ impl App {
         let gear_tip = if update_waiting { "Update available \u{2014} open Settings" } else { "Open settings" };
         let gear = style::with_tip(icon_btn("\u{2699}", 14, Message::OpenSettings), gear_tip, p);
         let gear_el: Element<'_, Message> = if update_waiting {
-            let dot = container(Space::new(Length::Fixed(5.0), Length::Fixed(5.0)))
+            // A glowing accent dot in the gear's centre that slow-blinks (~2.2s)
+            // while an update is waiting — driven by the free-running pulse clock.
+            let phase = 0.5 + 0.5 * (self.pulse_clock.elapsed().as_secs_f32() * std::f32::consts::TAU / 2.2).sin(); // 0..1
+            let a = 0.4 + 0.6 * phase; // 0.4..1.0
+            let dot = container(Space::new(Length::Fixed(4.0), Length::Fixed(4.0)))
                 .style(move |_| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(p.accent)),
-                    border: Border { radius: 2.5.into(), ..Default::default() },
+                    background: Some(iced::Background::Color(Color { a, ..p.accent })),
+                    border: Border { radius: 2.0.into(), ..Default::default() },
+                    shadow: iced::Shadow {
+                        color: Color { a: a * 0.85, ..p.accent },
+                        offset: iced::Vector::new(0.0, 0.0),
+                        blur_radius: 3.5 + 3.0 * phase, // halo swells with the pulse
+                    },
                     ..Default::default()
                 });
-            let overlay = column![
-                row![Space::with_width(Length::Fill), dot],
-                Space::with_height(Length::Fill),
-            ].width(Length::Fill).height(Length::Fill);
+            let overlay = container(dot)
+                .width(Length::Fill).height(Length::Fill)
+                .center_x(Length::Fill).center_y(Length::Fill);
             iced::widget::Stack::with_children(vec![gear, overlay.into()]).into()
         } else {
             gear
@@ -2865,6 +2891,11 @@ impl App {
         // Drive the title-bar brand blip while it animates after a window opens.
         if self.last_window_open.map(|t| t.elapsed() < Duration::from_millis(550)).unwrap_or(false) {
             subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::BrandBlipTick));
+        }
+        // Smoothly animate the gear-core pulse while an update is available
+        // (BrandBlipTick is a no-op redraw — it just re-renders the frame).
+        if self.update_available.is_some() {
+            subs.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::BrandBlipTick));
         }
         // While a hotkey field is armed, capture the next key combo.
         if self.capturing_hotkey.is_some() {

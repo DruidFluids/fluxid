@@ -55,12 +55,14 @@ fn label<'a>(t: &str, p: Palette) -> Element<'a, Message> {
         .into()
 }
 
-fn toggle_row<'a>(label_text: &str, on: bool, msg: fn(bool) -> Message, p: Palette) -> Element<'a, Message> {
-    row![
-        toggler(on).size(14).on_toggle(msg).style(crate::style::toggler_style(p)),
-        text(label_text.to_string()).size(11)
-            .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-    ].spacing(6).align_y(iced::Alignment::Center).into()
+fn toggle_row<'a>(label_text: &str, on: bool, msg: fn(bool) -> Message, p: Palette, tip: &str) -> Element<'a, Message> {
+    crate::style::with_tip(
+        row![
+            toggler(on).size(14).on_toggle(msg).style(crate::style::toggler_style(p)),
+            text(label_text.to_string()).size(11)
+                .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+        ].spacing(6).align_y(iced::Alignment::Center),
+        tip, p)
 }
 
 fn pill<'a>(label_text: String, active: bool, msg: Message, p: Palette) -> Element<'a, Message> {
@@ -228,7 +230,8 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
         row![
             text("Gradient color".to_string()).size(10).style(move |_| iced::widget::text::Style { color: Some(bp.muted) }),
             Space::with_width(Length::Fill),
-            color_field(&w.gradient_color, bp, move |s| Message::SetWarnGradientColor(k6.clone(), s)),
+            crate::style::with_tip(color_field(&w.gradient_color, bp, move |s| Message::SetWarnGradientColor(k6.clone(), s)),
+                "The 'hot' color the unit text shifts toward as the metric approaches the threshold.", bp),
         ].spacing(6).align_y(iced::Alignment::Center).into()
     } else {
         Space::with_height(0).into()
@@ -237,29 +240,31 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
         // Threshold
         row![
             label("Threshold", bp), Space::with_width(Length::Fill),
-            text_input("", &format!("{}", w.threshold as i64)).size(11).width(70)
+            crate::style::with_tip(text_input("", &format!("{}", w.threshold as i64)).size(11).width(70)
                 .on_input(move |s| Message::SetWarnThresholdStr(k1.clone(), s))
                 .style(crate::style::dark_input_style(bp)),
+                "The value this alert triggers at (in the unit shown) — when the metric crosses it, the tile flashes or its gradient shifts.", bp),
             text(unit_label.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(bp.muted) }),
         ].spacing(6).align_y(iced::Alignment::Center),
         // Metric
         row![
             label("Metric", bp), Space::with_width(Length::Fill),
-            pick_list(metrics, Some(sel_metric), move |s: String| {
+            crate::style::with_tip(pick_list(metrics, Some(sel_metric), move |s: String| {
                 let m = if s == "Load" { WarnMetric::Load } else { WarnMetric::Temperature };
                 Message::SetWarnMetric(k2.clone(), m)
             }).text_size(11).width(140).style(crate::style::pick_list_style(bp)),
+                "Whether this alert watches the tile's temperature or its load percentage.", bp),
         ].spacing(6).align_y(iced::Alignment::Center),
         // Flash + flash colour swatch
         row![
-            toggler(w.flash_enabled).size(14).on_toggle(move |on| Message::SetWarnFlash(k3.clone(), on)).style(crate::style::toggler_style(bp)),
+            crate::style::with_tip(toggler(w.flash_enabled).size(14).on_toggle(move |on| Message::SetWarnFlash(k3.clone(), on)).style(crate::style::toggler_style(bp)), "Flash the tile background when the threshold is crossed.", bp),
             text("Flash".to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(bp.text) }),
             Space::with_width(Length::Fill),
-            color_field(&w.flash_color, bp, move |s| Message::SetWarnFlashColor(k4.clone(), s)),
+            crate::style::with_tip(color_field(&w.flash_color, bp, move |s| Message::SetWarnFlashColor(k4.clone(), s)), "The colour the tile flashes when alerting.", bp),
         ].spacing(6).align_y(iced::Alignment::Center),
         // Gradient + (when on) the gradient hot-colour swatch
         row![
-            toggler(w.gradient_mode).size(14).on_toggle(move |on| Message::SetWarnGradient(k5.clone(), on)).style(crate::style::toggler_style(bp)),
+            crate::style::with_tip(toggler(w.gradient_mode).size(14).on_toggle(move |on| Message::SetWarnGradient(k5.clone(), on)).style(crate::style::toggler_style(bp)), "Instead of flashing, shift the unit colour toward your hot colour as the value climbs.", bp),
             text("Gradient mode \u{2014} unit color shifts blue \u{2192} your color".to_string()).size(10)
                 .style(move |_| iced::widget::text::Style { color: Some(bp.text) }),
         ].spacing(6).align_y(iced::Alignment::Center),
@@ -271,7 +276,7 @@ fn warn_card<'a>(settings: &AppSettings, kind: &str, p: Palette) -> Element<'a, 
     let ek = kind.to_string();
     container(column![
         row![
-            toggler(enabled).size(16).on_toggle(move |on| Message::SetWarnEnabled(ek.clone(), on)).style(crate::style::toggler_style(p)),
+            crate::style::with_tip(toggler(enabled).size(16).on_toggle(move |on| Message::SetWarnEnabled(ek.clone(), on)).style(crate::style::toggler_style(p)), "Turn threshold alerts on or off for this tile.", p),
             text(display).size(13)
                 .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
                 .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
@@ -304,7 +309,7 @@ pub fn alerts_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -
     ];
 
     let body = column![
-        scrollable(list).height(Length::Fill),
+        scrollable(list).height(Length::Fill).style(crate::style::scrollable_style(p)),
         save_close_footer(win_id, p),
     ];
     shell("Tile Alerts", win_id, p, body.into())
@@ -385,10 +390,11 @@ pub fn game_mode_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id
     for (i, (internal, display)) in tiles.iter().enumerate() {
         let on = s.game_mode_tiles.iter().any(|t| t == internal);
         let name = internal.to_string();
-        let el: Element<'a, Message> = row![
+        let el: Element<'a, Message> = crate::style::with_tip(row![
             toggler(on).size(14).on_toggle(move |v| Message::ToggleGameModeTile(name.clone(), v)).style(crate::style::toggler_style(p)),
             text(display.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-        ].spacing(6).align_y(iced::Alignment::Center).width(Length::FillPortion(1)).into();
+        ].spacing(6).align_y(iced::Alignment::Center).width(Length::FillPortion(1)),
+            &format!("Show the {display} tile while Game Mode is active."), p);
         if i < 3 { row0.push(el); } else { row1.push(el); }
     }
     let tiles_grid = column![row(row0).spacing(8), row(row1).spacing(8)].spacing(6);
@@ -396,7 +402,7 @@ pub fn game_mode_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id
     let content = column![
         intro,
         Space::with_height(10),
-        toggle_row("Enable Game Mode", s.game_mode_enabled, Message::SetGameModeEnabled, p),
+        toggle_row("Enable Game Mode", s.game_mode_enabled, Message::SetGameModeEnabled, p, "Turn Game Mode on so the hotkey snaps the overlay to your chosen corner."),
         Space::with_height(8),
         label("Hotkey", p),
         hotkey_row,
@@ -409,12 +415,12 @@ pub fn game_mode_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id
         section_header("APPEARANCE WHEN ACTIVE", p),
         row![label("Opacity", p), Space::with_width(Length::Fill),
             text(format!("{:.0}%", s.game_mode_opacity * 100.0)).size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) })],
-        crate::settings_panel::marked_slider(0.1, 1.0, s.game_mode_opacity, 0.01, 0.7, p, Message::SetGameModeOpacity),
+        crate::style::with_tip(crate::settings_panel::marked_slider(0.1, 1.0, s.game_mode_opacity, 0.01, 0.7, p, Message::SetGameModeOpacity), "How see-through the widget is while Game Mode is active.", p),
         Space::with_height(6),
         label("Orientation", p),
         orient_pills,
         Space::with_height(8),
-        toggle_row("Enable click-through while in Game Mode", s.game_mode_click_through, Message::SetGameModeClickThrough, p),
+        toggle_row("Enable click-through while in Game Mode", s.game_mode_click_through, Message::SetGameModeClickThrough, p, "Let the mouse pass through the overlay while Game Mode is active."),
         Space::with_height(10),
         section_header("TILES WHEN ACTIVE", p),
         Space::with_height(4),
@@ -422,7 +428,7 @@ pub fn game_mode_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id
     ].spacing(2);
 
     let body = column![
-        scrollable(content).height(Length::Fill),
+        scrollable(content).height(Length::Fill).style(crate::style::scrollable_style(p)),
         save_close_footer(win_id, p),
     ];
     shell("Game Mode", win_id, p, body.into())
@@ -430,32 +436,69 @@ pub fn game_mode_view<'a>(settings: &AppSettings, p: Palette, win_id: window::Id
 
 // ── Help ─────────────────────────────────────────────────────────────────────
 
-pub const HELP_SIZE: iced::Size = iced::Size::new(520.0, 600.0);
+pub const HELP_SIZE: iced::Size = iced::Size::new(530.0, 640.0);
 
-const HELP_SECTIONS: [(&str, &str); 9] = [
-    ("Tiles", "Toggle CPU, GPU, RAM, Network, Storage and Clock tiles from Settings. Drag the widget anywhere; it remembers its position."),
-    ("Layout", "Switch between horizontal and vertical orientation. Adjust tile width/height and overall UI scale to taste."),
-    ("Themes & Skins", "57 built-in color themes and 16 skins. Cycle with the arrows, roll the dice for a random pick, or hand-edit the five theme colors."),
-    ("Tile Alerts", "Set per-tile temperature or load thresholds. When crossed the tile flashes; gradient mode shifts the unit color from blue (cool) to red (hot)."),
-    ("Game Mode", "Bind a hotkey to instantly snap the widget to a corner of your primary monitor with a custom opacity and tile set — ideal while gaming."),
-    ("Behavior", "Always-on-top, click-through, snap-to-edges and snap-to-windows. Optionally launch Flux at Windows sign-in."),
-    ("Network & Disk", "Pick which adapter and disk to monitor. Choose how the traffic indicator animates and how disk drives are labelled."),
-    ("Fonts", "Choose primary, secondary and indicator fonts. Sync keeps all three in step. Per-element size offsets fine-tune the look."),
-    ("Updates", "Auto, Manual or Off. Check for new releases on demand from the Updates section in Settings."),
+const HELP_SECTIONS: [(&str, &str); 19] = [
+    ("The Widget", "The floating panel shows your live tiles. The gear (top-left) opens Settings; the close button (top-right) hides the widget to the system tray, where you can reopen or quit it. Drag the widget anywhere and it remembers its position."),
+    ("The Tiles", "CPU and GPU show temperature, load percentage and clock speed; RAM shows usage and type/speed; Network shows live download and upload; Disk shows read and write speed; Clock shows the time and date. Choose which tiles appear, and exactly what each one shows, in Settings then Tiles."),
+    ("Reorder and Layout", "Drag a tile row in Settings then Tiles to reorder them and the widget reflows live to match. Switch between Vertical and Horizontal layout in the Layout section."),
+    ("Tiles Tab", "The grid at the top turns each tile on or off. Below it, every tile has its own row; expand it with the chevron to pick exactly which details that tile displays (model name, temperature, clock, VRAM, and so on)."),
+    ("Behavior", "Always on top keeps Flux above other windows. Snap to edges docks it to screen edges as you drag; Snap to windows also docks to other windows' borders, with an adjustable snap distance. Run at Windows startup launches Flux when you sign in. Opacity sets transparency and Update interval sets how often the stats refresh."),
+    ("Click-Through", "Click-through makes the widget ignore the mouse, so clicks pass through to whatever is behind it. Set the click-through hotkey to toggle it back, since you cannot click the widget while it is active."),
+    ("Appearance: Skins", "A skin sets the widget's shape, borders, tile style and corner radius. Cycle through the 16 built-in skins with the arrows or open the skin browser."),
+    ("Appearance: Colors", "A theme is a five-colour palette: Background, Tile, Accent, Text and Muted. Edit any swatch's hex value directly, cycle 100+ presets with the arrows, roll the dice for a random look, or undo the last change. Muted-text visibility tunes how bright the secondary text is."),
+    ("Preset Themes and Slots", "Preset themes are one-click skin and colour combos. Save up to five favourites to the numbered slots and recall them instantly. Switch between dark and light from the colour presets."),
+    ("Share and Theme Store", "Export your current look as a share code to send to others, or import a code to apply theirs. The Theme Store (folder icon) browses downloadable theme packs."),
+    ("Fonts", "Choose the Primary (numbers), Secondary (names) and Indicator (units) fonts. Sync keeps all three the same and the dice can randomise them. The per-element size offsets nudge each group of text larger or smaller."),
+    ("Size", "UI scale resizes the whole widget at once; Tile width and Tile height size the individual tiles; Round widget corners toggles the rounded frame."),
+    ("Tile Alerts", "Set a per-tile threshold on temperature or load. Flash blinks the tile background in a colour you choose when the threshold is crossed; Gradient mode instead shifts the unit colour from cool blue toward your hot colour as the value climbs."),
+    ("Game Mode", "Bind a hotkey to instantly snap a compact overlay into a corner of your primary monitor, even in fullscreen. Pick the corner, opacity, orientation, optional click-through, and which tiles show while it is active. Press the hotkey again to send it back."),
+    ("Utilities", "A quick link to the Chris Titus Windows utility (it only opens the official site, nothing is bundled) plus a window-snap blocklist so chosen windows are never used as snap targets. Use Pick window to add one by clicking it."),
+    ("Remote Monitoring", "Enable the TCP sensor feed to share this PC's stats over your LAN, protected by a handshake key that others connect with. Add other machines by their IP and key to watch them; each gets its own popout widget with independent layout and theming."),
+    ("CPU Temperature", "Reading CPU die temperature needs a one-time, optional sensor driver (PawnIO), downloaded on demand from its official source and never bundled. Install or remove it from the CPU tile's info menu, and switch between Celsius and Fahrenheit there too."),
+    ("Updates", "Off never checks; Manual checks only when you press Check now; Auto checks on launch and periodically and flags the gear when an update is waiting; Auto-install also downloads and installs them for you. Every download is verified against its published SHA-256 before it runs (see the Verification tab)."),
+    ("License", "Flux is licensed, not sold, under a Personal Use License: you may view, build, run, and personally modify it, but you may not redistribute it or use it commercially. The full terms ship with the app as LICENSE.txt and are on GitHub (use the link below)."),
 ];
 
-pub fn help_view<'a>(_settings: &AppSettings, p: Palette, win_id: window::Id) -> Element<'a, Message> {
-    let mut col = column![].spacing(14);
-    for (title, desc) in HELP_SECTIONS {
-        col = col.push(column![
-            text(title.to_string()).size(13)
-                .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-                .style(move |_| iced::widget::text::Style { color: Some(p.accent) }),
-            text(desc.to_string()).size(11)
-                .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-        ].spacing(3));
+pub fn help_view<'a>(expanded: &std::collections::HashSet<usize>, p: Palette, win_id: window::Id) -> Element<'a, Message> {
+    let mut col = column![].spacing(5);
+    for (i, (title, desc)) in HELP_SECTIONS.iter().enumerate() {
+        let open = expanded.contains(&i);
+        // Collapsible header: chevron + title; click to toggle its description.
+        let chevron = if open { "\u{25BE}" } else { "\u{25B8}" }; // ▾ open / ▸ closed
+        let header = button(
+            row![
+                text(chevron.to_string()).size(10).font(crate::style::ICONS)
+                    .style(move |_| iced::widget::text::Style { color: Some(p.accent) }),
+                Space::with_width(8),
+                text(title.to_string()).size(13)
+                    .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                    .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+                Space::with_width(Length::Fill),
+            ].align_y(iced::Alignment::Center)
+        )
+        .width(Length::Fill)
+        .padding(iced::Padding { top: 7.0, right: 10.0, bottom: 7.0, left: 8.0 })
+        .style(move |_: &iced::Theme, status: button::Status| {
+            let hover = matches!(status, button::Status::Hovered);
+            button::Style {
+                background: Some(iced::Background::Color(p.tile)),
+                border: Border { radius: 7.0.into(), width: 1.0, color: if open || hover { Color { a: 0.55, ..p.accent } } else { Color { a: 0.0, ..p.muted } } },
+                ..Default::default()
+            }
+        })
+        .on_press(Message::ToggleHelpSection(i));
+        col = col.push(header);
+        if open {
+            col = col.push(
+                container(
+                    text(desc.to_string()).size(11)
+                        .style(move |_| iced::widget::text::Style { color: Some(Color { a: 0.92, ..p.text }) })
+                ).padding(iced::Padding { top: 4.0, right: 10.0, bottom: 6.0, left: 26.0 })
+            );
+        }
     }
-    // Footer: the project name + how to say it.
+    // Footer: the project name + tagline, centered.
     col = col.push(
         container(
             column![
@@ -464,10 +507,18 @@ pub fn help_view<'a>(_settings: &AppSettings, p: Palette, win_id: window::Id) ->
                     .style(move |_| iced::widget::text::Style { color: Some(p.accent) }),
                 text("your system vitals, always in flux".to_string()).size(10)
                     .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
-            ].spacing(1)
-        ).padding(iced::Padding { top: 6.0, right: 0.0, bottom: 0.0, left: 0.0 })
+                Space::with_height(6),
+                button(text("View full license \u{2197}").size(10)
+                    .style(move |_| iced::widget::text::Style { color: Some(p.accent) }))
+                    .padding(0)
+                    .style(|_: &iced::Theme, _: button::Status| button::Style { background: None, ..Default::default() })
+                    .on_press(Message::OpenUrl("https://github.com/DruidFluids/Flux/blob/master/LICENSE".to_string())),
+                text("Personal Use License \u{2014} \u{00A9} 2026 Matt Hakes").size(9)
+                    .style(move |_| iced::widget::text::Style { color: Some(iced::Color { a: 0.7, ..p.muted }) }),
+            ].spacing(1).align_x(iced::Alignment::Center)
+        ).width(Length::Fill).center_x(Length::Fill).padding(iced::Padding { top: 10.0, right: 0.0, bottom: 0.0, left: 0.0 })
     );
-    let body = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 8.0, left: 0.0 })).height(Length::Fill);
+    let body = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 8.0, left: 0.0 })).height(Length::Fill).style(crate::style::scrollable_style(p));
     shell("Help", win_id, p, body.into())
 }
 
@@ -493,7 +544,7 @@ pub fn updated_view<'a>(version: &str, changelog: &str, reset_checked: bool, p: 
         crate::settings_panel::changelog_md(changelog, p)
     };
     // Notes box styled like the Updates card: a subtle tile-coloured panel.
-    let notes_box = container(scrollable(container(notes).padding(iced::Padding { top: 2.0, right: 10.0, bottom: 2.0, left: 2.0 })).height(Length::Fill))
+    let notes_box = container(scrollable(container(notes).padding(iced::Padding { top: 2.0, right: 10.0, bottom: 2.0, left: 2.0 })).height(Length::Fill).style(crate::style::scrollable_style(p)))
         .width(Length::Fill).height(Length::Fill)
         .padding(10)
         .style(move |_| iced::widget::container::Style {
@@ -730,7 +781,7 @@ pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: 
     let list = scrollable(
         column![ct, blocklist_card, disclaimer].spacing(8)
             .padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 0.0 })
-    ).height(Length::Fill);
+    ).height(Length::Fill).style(crate::style::scrollable_style(p));
     let body = column![list, save_close_footer(win_id, p)].height(Length::Fill);
     shell("Utilities", win_id, p, body.into())
 }
@@ -763,13 +814,14 @@ pub fn remote_view<'a>(
         }).into()
     };
 
-    let feed_toggle = row![
+    let feed_toggle = crate::style::with_tip(row![
         toggler(remote.feed_on).size(14).on_toggle(Message::SetTcpFeedEnabled).style(crate::style::toggler_style(p)),
         text("Enable TCP sensor feed (port 5199)").size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-    ].spacing(6).align_y(iced::Alignment::Center);
+    ].spacing(6).align_y(iced::Alignment::Center),
+        "Share this PC's sensor data over your LAN so other machines can monitor it.", p);
 
     let key_row = row![
-        text_input("", &remote.handshake_key).size(10).width(280).style(crate::style::dark_input_style(p)),
+        crate::style::with_tip(text_input("", &remote.handshake_key).size(10).width(280).style(crate::style::dark_input_style(p)), "The handshake key other machines use to connect to this PC. Keep it private.", p),
         ibtn("Copy".into(), Message::CopyHandshakeKey),
     ].spacing(8).align_y(iced::Alignment::Center);
 
@@ -868,15 +920,16 @@ pub fn remote_view<'a>(
     }
 
     col = col.push(Space::with_height(8));
-    col = col.push(row![
+    col = col.push(crate::style::with_tip(row![
         toggler(settings.show_remote_status_dot).size(14)
             .on_toggle(Message::SetShowRemoteStatusDot).style(crate::style::toggler_style(p)),
         text("Show a green/red status dot on the widget's device tabs").size(11)
             .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-    ].spacing(6).align_y(iced::Alignment::Center));
+    ].spacing(6).align_y(iced::Alignment::Center),
+        "Show a connection indicator (green = connected, red = offline) on each device tab.", p));
 
     let body = column![
-        scrollable(col.padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 0.0 })).height(Length::Fill),
+        scrollable(col.padding(iced::Padding { top: 4.0, right: 6.0, bottom: 4.0, left: 0.0 })).height(Length::Fill).style(crate::style::scrollable_style(p)),
         save_close_footer(win_id, p),
     ].height(Length::Fill);
     shell("Remote Monitoring", win_id, p, body.into())
@@ -910,7 +963,7 @@ pub fn window_picker_view<'a>(titles: Vec<String>, p: Palette, win_id: window::I
                 .on_press(Message::PickWindowChosen(t))
         );
     }
-    let body = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 8.0, left: 0.0 })).height(Length::Fill);
+    let body = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 6.0, bottom: 8.0, left: 0.0 })).height(Length::Fill).style(crate::style::scrollable_style(p));
     shell("Pick Window", win_id, p, body.into())
 }
 
@@ -944,7 +997,7 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
     // Sync toggle
     let sid = id.clone();
     col = col.push(row![
-        toggler(po.sync_colors).size(14).on_toggle(move |b| Message::PopoutSyncColors(sid.clone(), b)).style(crate::style::toggler_style(p)),
+        crate::style::with_tip(toggler(po.sync_colors).size(14).on_toggle(move |b| Message::PopoutSyncColors(sid.clone(), b)).style(crate::style::toggler_style(p)), "Match this popout to the main widget theme colours.", p),
         text("Use the widget's theme colors").size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
     ].spacing(6).align_y(iced::Alignment::Center));
 
@@ -987,7 +1040,7 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
     let tile_toggle = |name: &'static str, on: bool| -> Element<'a, Message> {
         let tid = id.clone();
         row![
-            toggler(on).size(14).on_toggle(move |b| Message::PopoutTile(tid.clone(), name.to_string(), b)).style(crate::style::toggler_style(p)),
+            crate::style::with_tip(toggler(on).size(14).on_toggle(move |b| Message::PopoutTile(tid.clone(), name.to_string(), b)).style(crate::style::toggler_style(p)), "Show this tile on the remote popout.", p),
             text(name.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
         ].spacing(6).align_y(iced::Alignment::Center).width(Length::FillPortion(1)).into()
     };
@@ -1027,7 +1080,7 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
         };
         column![
             row![
-                toggler(w.enabled).size(14).on_toggle(move |b| Message::PopoutWarnEnabled(ke.clone(), kind.to_string(), b)).style(crate::style::toggler_style(p)),
+                crate::style::with_tip(toggler(w.enabled).size(14).on_toggle(move |b| Message::PopoutWarnEnabled(ke.clone(), kind.to_string(), b)).style(crate::style::toggler_style(p)), "Enable threshold alerts for this tile on the popout.", p),
                 text(format!("{} alert", kind)).size(11).font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT }).style(move |_| iced::widget::text::Style { color: Some(p.text) }),
             ].spacing(6).align_y(iced::Alignment::Center),
             row![
@@ -1042,13 +1095,13 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
                 text(unit.to_string()).size(11).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             ].spacing(6).align_y(iced::Alignment::Center),
             row![
-                toggler(w.flash_enabled).size(14).on_toggle(move |b| Message::PopoutWarnFlash(kf.clone(), kind.to_string(), b)).style(crate::style::toggler_style(p)),
+                crate::style::with_tip(toggler(w.flash_enabled).size(14).on_toggle(move |b| Message::PopoutWarnFlash(kf.clone(), kind.to_string(), b)).style(crate::style::toggler_style(p)), "Flash the tile when its threshold is crossed.", p),
                 text("Flash".to_string()).size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
                 Space::with_width(Length::Fill),
                 color_field(&w.flash_color, p, move |s| Message::PopoutWarnFlashColor(kfc.clone(), kind.to_string(), s)),
             ].spacing(6).align_y(iced::Alignment::Center),
             row![
-                toggler(w.gradient_mode).size(14).on_toggle(move |b| Message::PopoutWarnGradient(kg.clone(), kind.to_string(), b)).style(crate::style::toggler_style(p)),
+                crate::style::with_tip(toggler(w.gradient_mode).size(14).on_toggle(move |b| Message::PopoutWarnGradient(kg.clone(), kind.to_string(), b)).style(crate::style::toggler_style(p)), "Shift the unit colour as the value climbs.", p),
                 text("Gradient mode".to_string()).size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
             ].spacing(6).align_y(iced::Alignment::Center),
             gradient_row,
@@ -1060,7 +1113,7 @@ pub fn popout_config_view<'a>(dev: Option<&'a RemoteDevice>, p: Palette, win_id:
     let body = scrollable(
         container(col.width(Length::Fill)).width(Length::Fill)
             .padding(iced::Padding { top: 4.0, right: 8.0, bottom: 8.0, left: 0.0 })
-    ).width(Length::Fill).height(Length::Fill);
+    ).width(Length::Fill).height(Length::Fill).style(crate::style::scrollable_style(p));
     shell("Popout", win_id, p, body.into())
 }
 
@@ -1209,7 +1262,7 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
         summary,
         hint,
         Space::with_height(6),
-        scrollable(container(grid).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill),
+        scrollable(container(grid).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill).style(crate::style::scrollable_style(p)),
     ].spacing(2);
     shell("Theme Store", win_id, p, body.into())
 }
@@ -1309,7 +1362,7 @@ fn franchise_detail<'a>(pi: usize, settings: &AppSettings, sel: &std::collection
         Space::with_height(4),
         actions,
         Space::with_height(4),
-        scrollable(container(rows).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill),
+        scrollable(container(rows).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill).style(crate::style::scrollable_style(p)),
     ];
     shell("Theme Store", win_id, p, body.into())
 }
@@ -1357,7 +1410,8 @@ pub fn picker_view<'a>(skins: bool, settings: &AppSettings, installed_open: bool
         for name in crate::style::skin_names() {
             let sel = name == active;
             let nm = name.to_string();
-            col = col.push(
+            let tip = format!("Apply the {name} skin (shape, borders, tile style, corner radius).");
+            col = col.push(crate::style::with_tip(
                 button(row![
                     skin_preview(&name, p, 40.0, 24.0),
                     Space::with_width(10),
@@ -1365,14 +1419,16 @@ pub fn picker_view<'a>(skins: bool, settings: &AppSettings, installed_open: bool
                     Space::with_width(Length::Fill),
                 ].align_y(iced::Alignment::Center))
                 .width(Length::Fill).padding(iced::Padding { top: 7.0, right: 10.0, bottom: 7.0, left: 8.0 }).style(card_style(sel))
-                .on_press(Message::ApplySkin(nm))
+                .on_press(Message::ApplySkin(nm)),
+                &tip, p)
             );
         }
     } else {
         let cur = crate::style::match_preset(settings);
         for (i, t) in crate::style::THEME_PRESETS.iter().enumerate() {
             let sel = cur == Some(i);
-            col = col.push(
+            let tip = format!("Apply the '{}' color theme (its five-color palette).", t.0);
+            col = col.push(crate::style::with_tip(
                 button(row![
                     text(t.0.to_string()).size(12)
                         .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
@@ -1381,7 +1437,8 @@ pub fn picker_view<'a>(skins: bool, settings: &AppSettings, installed_open: bool
                     chip(t.1), chip(t.2), chip(t.3), chip(t.4), chip(t.5),
                 ].spacing(4).align_y(iced::Alignment::Center))
                 .width(Length::Fill).padding(iced::Padding { top: 7.0, right: 10.0, bottom: 7.0, left: 10.0 }).style(card_style(sel))
-                .on_press(Message::ApplyThemePreset(i))
+                .on_press(Message::ApplyThemePreset(i)),
+                &tip, p)
             );
         }
         // Installed game-pack themes get their own collapsible folder, with a
@@ -1501,7 +1558,7 @@ pub fn picker_view<'a>(skins: bool, settings: &AppSettings, installed_open: bool
     // (and across re-opens within a session).
     let sid = iced::widget::scrollable::Id::new(if skins { "Flux-skin-picker" } else { "Flux-theme-picker" });
     let list = scrollable(container(col).padding(iced::Padding { top: 4.0, right: 8.0, bottom: 8.0, left: 0.0 }))
-        .id(sid).height(Length::Fill);
+        .id(sid).height(Length::Fill).style(crate::style::scrollable_style(p));
     // Bottom bar: a "Save and Close" action (selections apply live as you click).
     let body = column![list, save_close_footer(win_id, p)].height(Length::Fill);
     shell(title, win_id, p, body.into())

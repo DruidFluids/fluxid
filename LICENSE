@@ -1,26 +1,86 @@
 Flux — Personal Use License
 
+Version 1.0, June 2026
 Copyright (c) 2026 Matt Hakes (DruidFluids)
 
 This software and its source code are made publicly available for viewing and
 are licensed — not sold — to you under the terms below. This is NOT open-source
-software.
+software. All rights not expressly granted here are reserved.
 
-YOU MAY:
-  - View and read the source code.
-  - Download, build, run, and use the software for your own use.
-  - Modify the source code for your own use.
 
-YOU MAY NOT, without the prior written permission of the copyright holder:
-  - Redistribute, publish, share, mirror, sublicense, or sell the software or
-    its source code — in whole or in part, original or modified, in source or
-    binary form — by any means.
-  - Make the software, or any modified or derivative version of it, available
-    to any third party.
+1. PERMITTED USE
 
-All rights not expressly granted above are reserved by the copyright holder.
-No rights are granted to any contribution, and the copyright holder is under no
-obligation to accept, review, or incorporate any submitted change.
+You may, for your own personal and non-commercial use only:
+
+  (a) View and read the source code.
+  (b) Download, build, and run the software.
+  (c) Modify the source code for your own personal use.
+
+
+2. RESTRICTIONS
+
+Without the prior written permission of the copyright holder, you may not:
+
+  (a) Redistribute, publish, share, mirror, host, sublicense, or sell the
+      software or its source code — in whole or in part, original or modified,
+      in source or binary form — by any means or medium.
+  (b) Make the software, or any modified or derivative version of it, available
+      to any third party.
+  (c) Use the software or any derivative of it for commercial purposes,
+      including but not limited to selling, licensing, or bundling it with a
+      product or service.
+
+Note: Forking this repository on GitHub is permitted solely as a function of
+the GitHub platform and does not grant any rights beyond those stated in this
+license. Forked copies remain subject to all restrictions above.
+
+
+3. CONTRIBUTIONS
+
+No rights are granted to any contribution. The copyright holder is under no
+obligation to accept, review, or incorporate any submitted change. Any
+contribution submitted to this project is provided under the terms of this
+license, and the copyright holder retains sole discretion over its use.
+
+
+4. PATENTS
+
+No patent rights are granted under this license. The copyright holder reserves
+all patent rights in the software.
+
+
+5. TERMINATION
+
+This license is effective until terminated. Your rights under this license
+terminate automatically and immediately if you breach any of its terms. Upon
+termination, you must cease all use of the software and destroy any copies in
+your possession.
+
+
+6. ASSIGNMENT
+
+You may not assign, transfer, or delegate any of your rights or obligations
+under this license to any other person or entity, whether by operation of law
+or otherwise, without the prior written consent of the copyright holder.
+
+
+7. GOVERNING LAW
+
+This license shall be governed by and construed in accordance with the laws of
+the State of Tennessee, United States, without regard to its conflict of law
+provisions. Any legal action arising under this license shall be brought
+exclusively in the state or federal courts located in Tennessee.
+
+
+8. SEVERABILITY
+
+If any provision of this license is held to be unenforceable or invalid, that
+provision shall be modified to the minimum extent necessary to make it
+enforceable, or if modification is not possible, severed from this license. All
+remaining provisions shall continue in full force and effect.
+
+
+9. DISCLAIMER
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
