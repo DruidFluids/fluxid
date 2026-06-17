@@ -842,11 +842,16 @@ pub fn utilities_view<'a>(blocklist: &'a text_editor::Content, status: &str, p: 
 pub const REMOTE_SIZE: iced::Size = iced::Size::new(480.0, 640.0);
 
 pub fn remote_view<'a>(
-    remote: crate::settings_panel::RemoteView,
+    mut remote: crate::settings_panel::RemoteView,
     settings: &AppSettings,
     p: Palette,
     win_id: window::Id,
 ) -> Element<'a, Message> {
+    // Screenshot/QA mode (hidden --shot flag): never render the real handshake key
+    // — it's a connection credential. Show a placeholder so captures are shareable.
+    if std::env::args().any(|a| a == "--shot") {
+        remote.handshake_key = "FM1:ExampleKeyOnly-DoNotUse-RegenerateInApp".to_string();
+    }
     let ibtn = |lbl: String, msg: Message| crate::style::inline_btn(lbl, msg, p);
     let fl = |t: &str| label(t, p);
     let sh = move |title: &str, sub: &str| -> Element<'a, Message> {
