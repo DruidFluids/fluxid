@@ -863,13 +863,37 @@ pub fn view<'a>(
             tip_box("Export the current appearance as a share code to the clipboard.", p), TipPos::FollowCursor,
         )
     );
-    saved_row = saved_row.push(Space::with_width(3));
+    // The Theme Store is the discoverability hook for downloadable content, so it
+    // gets a prominent labeled accent button (with a soft glow) instead of blending
+    // in with the small import/export icons.
+    saved_row = saved_row.push(Space::with_width(10));
     saved_row = saved_row.push(
         tooltip(
-            button(text("\u{1F4E5}").size(12).font(crate::style::ICONS).style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
-                .padding([3, 6]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 3.0.into(), ..Border::default() }, ..Default::default() })
+            button(
+                row![
+                    text("\u{1F4E5}").size(12).font(crate::style::ICONS)
+                        .style(move |_| iced::widget::text::Style { color: Some(iced::Color::WHITE) }),
+                    text("Theme Store").size(11)
+                        .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                        .style(move |_| iced::widget::text::Style { color: Some(iced::Color::WHITE) }),
+                ].spacing(6).align_y(iced::Alignment::Center)
+            )
+                .padding([5, 12])
+                .style(move |_: &iced::Theme, st: button::Status| {
+                    let hover = matches!(st, button::Status::Hovered);
+                    button::Style {
+                        background: Some(iced::Background::Color(if hover { iced::Color { a: 0.9, ..p.accent } } else { p.accent })),
+                        border: Border { radius: 7.0.into(), ..Border::default() },
+                        text_color: iced::Color::WHITE,
+                        shadow: iced::Shadow {
+                            color: iced::Color { a: if hover { 0.55 } else { 0.4 }, ..p.accent },
+                            offset: iced::Vector::new(0.0, 1.0),
+                            blur_radius: if hover { 9.0 } else { 6.0 },
+                        },
+                    }
+                })
                 .on_press(Message::OpenThemeStore),
-            tip_box("Download more themes & skins from the Theme Store.", p), TipPos::FollowCursor,
+            tip_box("Browse & download themes and skins from the Theme Store.", p), TipPos::FollowCursor,
         )
     );
     if !appearance_status.is_empty() {

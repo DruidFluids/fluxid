@@ -685,10 +685,11 @@ impl SkinStyle {
     }
 }
 
-pub const SKIN_NAMES: [&str; 16] = [
+pub const SKIN_NAMES: [&str; 21] = [
     "Default","Minimal","Sharp","Glassmorphism","Retro",
     "Terminal","Holographic","Brutalist","Carbon","Neon",
     "Frosted","Cyberpunk","Paper","Ink","Aurora","Compact",
+    "Ember","Slate","Prism","Monolith","Plasma",
 ];
 
 /// Resolve a skin by name: user-installed skins first, then the built-ins.
@@ -818,6 +819,47 @@ fn builtin_skin_style(name: &str) -> SkinStyle {
             border_src: BorderSource::Accent, border_alpha: 0.6,
             accent_bar: 0.0, header_bar: 0.0, sheen: 0.0,
             glow: 0.35, gradient: 0.0,
+        },
+        // ── Added 2026-06-18 (designed with Grok) ──
+        // Soft pill tiles, deep accent gradient + warm ambient bloom.
+        "Ember" => SkinStyle {
+            tile_radius: 18.0, widget_radius: 24.0,
+            tile_border: 0.0, widget_border: 0.0, tile_spacing: 10.0,
+            border_src: BorderSource::Transparent, border_alpha: 0.0,
+            accent_bar: 0.0, header_bar: 0.0, sheen: 0.35,
+            glow: 0.55, gradient: 0.85,
+        },
+        // Restrained flat panels, whisper-thin muted borders — calm utility chrome.
+        "Slate" => SkinStyle {
+            tile_radius: 6.0, widget_radius: 10.0,
+            tile_border: 0.5, widget_border: 1.0, tile_spacing: 3.0,
+            border_src: BorderSource::Muted, border_alpha: 0.4,
+            accent_bar: 0.0, header_bar: 0.0, sheen: 0.0,
+            glow: 0.0, gradient: 0.08,
+        },
+        // Glossy capsules with accent top stripes + a prismatic colour wash.
+        "Prism" => SkinStyle {
+            tile_radius: 20.0, widget_radius: 28.0,
+            tile_border: 1.0, widget_border: 0.0, tile_spacing: 12.0,
+            border_src: BorderSource::Accent, border_alpha: 0.5,
+            accent_bar: 0.0, header_bar: 3.0, sheen: 0.6,
+            glow: 0.4, gradient: 0.65,
+        },
+        // Heavy outer frame + thick left accent rails — architectural slabs.
+        "Monolith" => SkinStyle {
+            tile_radius: 2.0, widget_radius: 4.0,
+            tile_border: 0.0, widget_border: 4.0, tile_spacing: 16.0,
+            border_src: BorderSource::Text, border_alpha: 0.9,
+            accent_bar: 6.0, header_bar: 0.0, sheen: 0.0,
+            glow: 0.0, gradient: 0.0,
+        },
+        // Electric accent outlines, corner glow + cross accent stripes — sci-fi energy.
+        "Plasma" => SkinStyle {
+            tile_radius: 0.0, widget_radius: 6.0,
+            tile_border: 2.0, widget_border: 1.0, tile_spacing: 5.0,
+            border_src: BorderSource::Accent, border_alpha: 1.0,
+            accent_bar: 2.0, header_bar: 2.0, sheen: 0.25,
+            glow: 0.95, gradient: 0.45,
         },
         _ => builtin_skin_style("Default"),
     }
