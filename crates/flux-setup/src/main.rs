@@ -28,7 +28,12 @@ fn main() -> iced::Result {
         std::process::exit(0);
     }
     if cli::has(&args, &["uninstall"]) {
-        std::process::exit(run_uninstall_cli(&args));
+        // Silent/quiet uninstall (QuietUninstallString) stays headless; an
+        // interactive uninstall opens the same wizard GUI in uninstall mode.
+        if cli::is_silent(&args) {
+            std::process::exit(run_uninstall_cli(&args));
+        }
+        return gui::run();
     }
     // A silent/quiet switch on its own (no GUI) implies a headless install with
     // default options — the NSIS-style `/S` convention.
@@ -248,6 +253,9 @@ mod gui {
         ToggleLaunch(bool),
         StartInstall,
         Installed(Outcome),
+        ToggleRemoveSettings(bool),
+        StartUninstall,
+        Uninstalled(Outcome),
         Finish,
     }
 
@@ -260,19 +268,30 @@ mod gui {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Mode {
+        Install,
+        Uninstall,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Page {
         Welcome,
         Options,
         Installing,
         Done,
+        // Uninstall-mode first page: confirm + "remove all" checkbox.
+        ConfirmUninstall,
     }
 
     struct Wizard {
+        mode: Mode,
         page: Page,
         scope: Scope,
         desktop: bool,
         startup: bool,
         launch: bool,
+        /// Uninstall: also delete settings/themes/skins + sensor service + driver.
+        remove_settings: bool,
         outcome: Option<Outcome>,
         qa: bool,
     }
@@ -286,6 +305,9 @@ mod gui {
             // placeholder paths (C:\Users\you\...) instead of the real install dir
             // so captured screenshots never leak the local Windows username.
             let qa = crate::cli::value(&args, &["page"]).is_some();
+            // Uninstall mode (invoked by Add/Remove Programs as `--uninstall`):
+            // open straight to the confirm page; the scope rides in on the flag.
+            let uninstall = crate::cli::has(&args[1..], &["uninstall"]);
             let (page, outcome) = match crate::cli::value(&args, &["page"]) {
                 Some("options") => (Page::Options, None),
                 Some("installing") => (Page::Installing, None),
@@ -306,15 +328,18 @@ mod gui {
                         error: None,
                     }),
                 ),
+                _ if uninstall => (Page::ConfirmUninstall, None),
                 _ => (Page::Welcome, None),
             };
             (
                 Self {
+                    mode: if uninstall { Mode::Uninstall } else { Mode::Install },
                     page,
-                    scope: Scope::PerUser,
+                    scope: crate::cli::scope(&args[1..]),
                     desktop: true,
                     startup: true,
                     launch: true,
+                    remove_settings: true, // "remove all traces" on by default
                     outcome,
                     qa,
                 },
@@ -367,27 +392,55 @@ mod gui {
                     self.page = Page::Done;
                     Task::none()
                 }
+                Message::ToggleRemoveSettings(v) => {
+                    self.remove_settings = v;
+                    Task::none()
+                }
+                Message::StartUninstall => {
+                    self.page = Page::Installing;
+                    let opts = UninstallOptions {
+                        scope: self.scope,
+                        remove_settings: self.remove_settings,
+                    };
+                    Task::perform(run_uninstall_async(opts), Message::Uninstalled)
+                }
+                Message::Uninstalled(outcome) => {
+                    self.outcome = Some(outcome);
+                    self.page = Page::Done;
+                    Task::none()
+                }
                 Message::Finish => iced::exit(),
             }
         }
 
         fn view(&self) -> Element<'_, Message> {
-            let step = match self.page {
-                Page::Welcome => 0,
-                Page::Options => 1,
-                Page::Installing => 2,
-                Page::Done => 3,
+            // Install is a 4-step flow (Welcome/Options/Installing/Done); uninstall
+            // is 3 (Confirm/Uninstalling/Done). The step bar tracks whichever.
+            let total = match self.mode {
+                Mode::Install => 4,
+                Mode::Uninstall => 3,
+            };
+            let step = match (self.mode, self.page) {
+                (Mode::Install, Page::Welcome) => 0,
+                (Mode::Install, Page::Options) => 1,
+                (Mode::Install, Page::Installing) => 2,
+                (Mode::Install, Page::Done) => 3,
+                (Mode::Uninstall, Page::ConfirmUninstall) => 0,
+                (Mode::Uninstall, Page::Installing) => 1,
+                (Mode::Uninstall, Page::Done) => 2,
+                _ => 0,
             };
             let (content, buttons) = match self.page {
                 Page::Welcome => self.welcome(),
                 Page::Options => self.options_page(),
+                Page::ConfirmUninstall => self.confirm_uninstall(),
                 Page::Installing => self.installing(),
                 Page::Done => self.done(),
             };
             // The options page is content-dense — pin it to the top so nothing
             // is clipped; the other (short) pages look best vertically centered.
             let center = !matches!(self.page, Page::Options);
-            frame(step, content, buttons, center)
+            frame(step, total, content, buttons, center)
         }
 
         fn welcome(&self) -> (Element<'_, Message>, Element<'_, Message>) {
@@ -496,14 +549,50 @@ mod gui {
             (content.into(), buttons.into())
         }
 
+        fn confirm_uninstall(&self) -> (Element<'_, Message>, Element<'_, Message>) {
+            let note = if self.remove_settings {
+                "Complete removal — your settings/themes/skins, the sensor service, and the optional PawnIO driver are all removed."
+            } else {
+                "Your settings, themes & skins (and the sensor service) will be kept for a future reinstall."
+            };
+            let content = column![
+                style::badge(),
+                Space::with_height(12),
+                text("Uninstall Flux").size(22).style(style::heading),
+                text(format!("v{} — remove Flux from this PC.", engine::VERSION))
+                    .size(14)
+                    .style(style::muted),
+                Space::with_height(12),
+                container(
+                    checkbox("Also remove my settings, themes & skins", self.remove_settings)
+                        .on_toggle(Message::ToggleRemoveSettings),
+                )
+                .width(Length::Fixed(340.0)),
+                container(text(note).size(12).style(style::muted))
+                    .width(Length::Fixed(340.0)),
+            ]
+            .spacing(6)
+            .align_x(Alignment::Center);
+
+            let buttons = row![
+                secondary_button("Cancel", Some(Message::Finish)),
+                primary_button("Uninstall", Some(Message::StartUninstall)),
+            ]
+            .spacing(12);
+
+            (content.into(), buttons.into())
+        }
+
         fn installing(&self) -> (Element<'_, Message>, Element<'_, Message>) {
+            let (title, sub) = match self.mode {
+                Mode::Install => ("Installing…", "Setting up Flux. This only takes a moment."),
+                Mode::Uninstall => ("Uninstalling…", "Removing Flux. This only takes a moment."),
+            };
             let content = column![
                 style::badge(),
                 Space::with_height(14),
-                text("Installing…").size(22).style(style::heading),
-                text("Setting up Flux. This only takes a moment.")
-                    .size(14)
-                    .style(style::muted),
+                text(title).size(22).style(style::heading),
+                text(sub).size(14).style(style::muted),
             ]
             .spacing(6)
             .align_x(Alignment::Center);
@@ -528,7 +617,8 @@ mod gui {
                         )
                     });
                     column![
-                        text("Setup complete").size(22).style(style::heading),
+                        text(if self.mode == Mode::Uninstall { "Uninstall complete" } else { "Setup complete" })
+                            .size(22).style(style::heading),
                         Space::with_height(14),
                         container(scrollable(steps)).width(Length::Fixed(330.0)),
                     ]
@@ -537,7 +627,8 @@ mod gui {
                     .into()
                 }
                 Some(o) => column![
-                    text("Setup failed").size(22).style(style::heading),
+                    text(if self.mode == Mode::Uninstall { "Uninstall failed" } else { "Setup failed" })
+                        .size(22).style(style::heading),
                     Space::with_height(12),
                     text(o.error.clone().unwrap_or_else(|| "Unknown error.".into()))
                         .size(14)
@@ -563,6 +654,7 @@ mod gui {
     /// centered button row — the consistent wizard frame.
     fn frame<'a>(
         step: usize,
+        total: usize,
         content: Element<'a, Message>,
         buttons: Element<'a, Message>,
         center: bool,
@@ -578,7 +670,7 @@ mod gui {
         };
         container(
             column![
-                step_bar(step),
+                step_bar(step, total),
                 area,
                 container(text("")).width(Length::Fill).height(Length::Fixed(1.0)).style(style::divider),
                 container(buttons).width(Length::Fill).center_x(Length::Fill),
@@ -593,10 +685,9 @@ mod gui {
     }
 
     /// The row of step segments across the top (current + past are accent).
-    fn step_bar(step: usize) -> Element<'static, Message> {
-        const TOTAL: usize = 4;
+    fn step_bar(step: usize, total: usize) -> Element<'static, Message> {
         let mut bar = row![].spacing(8);
-        for i in 0..TOTAL {
+        for i in 0..total {
             bar = bar.push(
                 container(text(""))
                     .width(Length::Fixed(34.0))
@@ -640,6 +731,24 @@ mod gui {
                 ok: false,
                 steps: vec![],
                 error: Some("Internal error during install.".into()),
+            },
+        }
+    }
+
+    /// Run the (blocking) uninstall off the UI thread. `engine::uninstall` handles
+    /// its own elevation — one UAC prompt when "remove all traces" is enabled.
+    async fn run_uninstall_async(opts: UninstallOptions) -> Outcome {
+        let result = tokio::task::spawn_blocking(move || match engine::uninstall(opts) {
+            Ok(rep) => Outcome { ok: true, steps: rep.steps, error: None },
+            Err(e) => Outcome { ok: false, steps: vec![], error: Some(e.to_string()) },
+        })
+        .await;
+        match result {
+            Ok(o) => o,
+            Err(_) => Outcome {
+                ok: false,
+                steps: vec![],
+                error: Some("Internal error during uninstall.".into()),
             },
         }
     }
