@@ -3146,7 +3146,11 @@ impl App {
             }),
         ];
         // Only run the animation clock for the animated modes (Glow is static).
-        if matches!(self.settings.network_traffic_indicator.as_str(), "Blink" | "Fade") {
+        // Paused during a tile drag/settle for the same reason as the gear pulse
+        // below: a 60ms full-window repaint floods the drag's present stream.
+        if matches!(self.settings.network_traffic_indicator.as_str(), "Blink" | "Fade")
+            && self.tile_drag.is_none() && self.tile_slots.is_empty()
+        {
             subs.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::AnimTick));
         }
         // Auto and Manual re-check for updates periodically (every 6h) so a
@@ -3160,7 +3164,13 @@ impl App {
         }
         // Smoothly animate the gear-core pulse while an update is available
         // (BrandBlipTick is a no-op redraw — it just re-renders the frame).
-        if self.update_available.is_some() {
+        // BUT NOT during a tile drag/settle: this fires a full repaint of every
+        // window every 60ms, and those extra window-presents flood the drag (whose
+        // proven bottleneck is present count), stuttering it on every GPU. Since
+        // updates now linger (Auto notifies instead of auto-installing), this pulse
+        // would otherwise run the whole time an update is pending. Pause it for the
+        // ~second of the drag — the gear resumes pulsing the moment it ends.
+        if self.update_available.is_some() && self.tile_drag.is_none() && self.tile_slots.is_empty() {
             subs.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::BrandBlipTick));
         }
         // While a hotkey field is armed, capture the next key combo.
