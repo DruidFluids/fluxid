@@ -1348,10 +1348,10 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
                 Space::with_width(Length::Fill),
                 text(count_txt).size(9)
                     .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
-                    .width(Length::Fixed(94.0)),
+                    .width(Length::Fixed(62.0)),
                 install_btn,
                 browse_btn,
-            ].align_y(iced::Alignment::Center).spacing(8)
+            ].align_y(iced::Alignment::Center).spacing(6)
         )
         .width(Length::Fill)
         .padding(iced::Padding { top: 6.0, right: 10.0, bottom: 6.0, left: 10.0 })
