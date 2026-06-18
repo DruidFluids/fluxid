@@ -204,7 +204,7 @@ Flux is built with security-conscious defaults:
 - **No telemetry** — the app makes zero analytics calls. The only outbound connections are the optional update check, the optional PawnIO driver download (user-initiated), and LAN-only remote monitoring.
 - **PawnIO is never bundled** — the CPU temperature driver is downloaded on demand from its [official GitHub release](https://github.com/namazso/PawnIO.Setup/releases), and is never redistributed here.
 - **Verified updates** — the in-app updater refuses to run a downloaded installer unless its SHA-256 matches a checksum published alongside the release.
-- **Scanned on VirusTotal** — every release is scanned and the result is linked in its notes. v1.0.26: **[0 / 70](https://www.virustotal.com/gui/file/27cda7b87f6a42b6cca4271172c65eeef873dbf62363c58c17890b69c7ec041e)** (clean).
+- **Scanned on VirusTotal** — every release is scanned and the result is linked in its notes. v1.1.0: **[0 detections](https://www.virustotal.com/gui/file/2d6aa6426c35617ce3a8cc9600624d5d22b36a1e01cbde3756f6dc3f6e0b09fe)** (clean).
 - **Unsigned build** — the installer is not code-signed, so Windows SmartScreen shows a one-time prompt. Verify any download against the `.sha256` published with each release before running it.
 - **Settings stay local** — all configuration lives in `%APPDATA%\Flux`. Nothing is sent anywhere.
 - **Source-available** — every line is in this repo for inspection (see [License](#license)).
