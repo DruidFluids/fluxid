@@ -9,10 +9,11 @@ use crate::Message;
 
 // ── Shared chrome ──────────────────────────────────────────────────────────
 
-fn caption<'a>(_title: &str, win_id: window::Id, p: Palette) -> Element<'a, Message> {
-    // Clean, minimal title bar: an accent band with just the centred brand mark
-    // and a close button on the right, drawn in the theme bg colour for contrast.
-    // The whole band drags the window.
+fn caption<'a>(_title: &str, win_id: window::Id, p: Palette, leading: Option<Element<'a, Message>>) -> Element<'a, Message> {
+    // Clean, minimal title bar: an accent band with the centred brand mark, a
+    // close button on the right, and an optional `leading` control on the left
+    // (e.g. the Theme Store "back" button). Drawn in the theme bg colour for
+    // contrast. The whole band drags the window.
     let on_bar = Color { a: 1.0, ..p.bg };
     let close = crate::style::with_tip(button(
         text("\u{2715}").size(13).font(iced::Font::with_name("Segoe UI Symbol"))
@@ -20,15 +21,15 @@ fn caption<'a>(_title: &str, win_id: window::Id, p: Palette) -> Element<'a, Mess
     ).padding([2, 8]).style(|_, _| button::Style { background: None, ..Default::default() })
         .on_press(Message::ClosePopup(win_id)), "Close", p);
     let brand = crate::style::brand_pulse(on_bar, 18.0);
+    // Equal-Fill containers on each side keep the brand mark truly centred no
+    // matter how wide the leading/close controls are.
+    let left: Element<'a, Message> = leading.unwrap_or_else(|| Space::with_width(Length::Fixed(0.0)).into());
     mouse_area(
         container(
             row![
-                // Balances the close button so the brand mark stays truly centred.
-                Space::with_width(Length::Fixed(34.0)),
-                Space::with_width(Length::Fill),
+                container(left).width(Length::Fill),
                 brand,
-                Space::with_width(Length::Fill),
-                close,
+                container(close).width(Length::Fill).align_x(iced::alignment::Horizontal::Right),
             ].align_y(iced::Alignment::Center)
         )
         .width(Length::Fill)
@@ -101,6 +102,12 @@ fn save_close_footer<'a>(win_id: window::Id, p: Palette) -> Element<'a, Message>
 }
 
 fn shell<'a>(title: &str, win_id: window::Id, p: Palette, body: Element<'a, Message>) -> Element<'a, Message> {
+    shell_leading(title, win_id, p, None, body)
+}
+
+// Like `shell`, but with an optional control placed in the title bar's top-left
+// corner (used by the Theme Store pack view for its "All Packs" back button).
+fn shell_leading<'a>(title: &str, win_id: window::Id, p: Palette, leading: Option<Element<'a, Message>>, body: Element<'a, Message>) -> Element<'a, Message> {
     // Match the Settings window's "Soft Premium" frame: a slightly darkened
     // window backdrop, a soft accent-tinted hairline border, and a large radius.
     let window_bg = Color { r: p.bg.r * 0.88, g: p.bg.g * 0.88, b: p.bg.b * 0.88, ..p.bg };
@@ -110,7 +117,7 @@ fn shell<'a>(title: &str, win_id: window::Id, p: Palette, body: Element<'a, Mess
     let hairline = container(Space::new(Length::Fill, Length::Fixed(1.0)))
         .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(Color { a: 0.30, ..p.accent })), ..Default::default() });
     container(column![
-        caption(title, win_id, p),
+        caption(title, win_id, p, leading),
         hairline,
         container(body).width(Length::Fill).height(Length::Fill)
             .padding(iced::Padding { top: 8.0, right: 16.0, bottom: 12.0, left: 16.0 }),
@@ -1373,6 +1380,7 @@ fn store_grid<'a>(settings: &AppSettings, p: Palette, win_id: window::Id) -> Ele
         hint,
         Space::with_height(6),
         scrollable(container(grid).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill).style(crate::style::scrollable_style(p)),
+        save_close_footer(win_id, p),
     ].spacing(2);
     shell("Theme Store", win_id, p, body.into())
 }
@@ -1387,23 +1395,26 @@ fn franchise_detail<'a>(pi: usize, settings: &AppSettings, sel: &std::collection
     // Themes ticked for "Install selected" (only ones not already installed).
     let sel_n = pack.themes.iter().filter(|t| !is_installed(&t.name) && sel.contains(&t.name)).count();
 
-    let back = button(text("\u{2039}  |  All Packs".to_string()).size(11)
+    // "Back" lives in the title bar's top-left corner, so it's styled to contrast
+    // the accent band (theme-bg colour) like the close button — not accent-on-accent.
+    let on_bar = Color { a: 1.0, ..p.bg };
+    let back: Element<'a, Message> = button(text("\u{2039}  All Packs".to_string()).size(11)
         .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-        .style(move |_| iced::widget::text::Style { color: Some(p.accent) }))
-        .padding(iced::Padding { top: 4.0, right: 12.0, bottom: 4.0, left: 12.0 })
+        .style(move |_| iced::widget::text::Style { color: Some(on_bar) }))
+        .padding(iced::Padding { top: 3.0, right: 10.0, bottom: 3.0, left: 8.0 })
         .style(move |_: &iced::Theme, st: button::Status| {
             let hover = matches!(st, button::Status::Hovered);
             button::Style {
-                background: Some(iced::Background::Color(if hover { Color { a: 0.12, ..p.accent } } else { Color::TRANSPARENT })),
-                border: Border { radius: 6.0.into(), width: 1.0, color: Color { a: 0.45, ..p.accent } },
-                text_color: p.accent,
+                background: Some(iced::Background::Color(if hover { Color { a: 0.18, ..on_bar } } else { Color::TRANSPARENT })),
+                border: Border { radius: 6.0.into(), width: 1.0, color: Color { a: 0.55, ..on_bar } },
+                text_color: on_bar,
                 ..Default::default()
             }
         })
-        .on_press(Message::ThemeStoreBack);
+        .on_press(Message::ThemeStoreBack)
+        .into();
 
     let header = row![
-        back,
         Space::with_width(Length::Fill),
         text(format!("{} \u{00B7} {} / {} installed", pack.franchise, installed_n, pack.themes.len())).size(10)
             .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
@@ -1492,8 +1503,9 @@ fn franchise_detail<'a>(pi: usize, settings: &AppSettings, sel: &std::collection
         actions,
         Space::with_height(4),
         scrollable(container(rows).padding(iced::Padding { top: 0.0, right: 8.0, bottom: 8.0, left: 0.0 })).height(Length::Fill).style(crate::style::scrollable_style(p)),
+        save_close_footer(win_id, p),
     ];
-    shell("Theme Store", win_id, p, body.into())
+    shell_leading("Theme Store", win_id, p, Some(back), body.into())
 }
 
 // ── Theme / Skin pickers (click the name in Appearance to browse all) ─────────
