@@ -632,10 +632,20 @@ fn truncate(s: &str, max: usize) -> String {
 struct TileDrag {
     name: String,         // the tile being dragged
     origin_index: usize,  // its index in tile_order when the drag began
-    start_y: Option<f32>, // cursor y at the first move (window-relative, logical)
-    cursor_y: f32,        // current cursor y (window-relative, logical)
-    gap_anim: f32,        // drop-gap position (float slot), eases toward the target
+    target_index: usize,  // the slot it will drop into; updated ONLY when the slot
+                          // changes, so the reorder repaints a handful of times per
+                          // drag instead of ~60×/sec (which stuttered the present).
 }
+
+// Discrete-drag tracking for the reorder subscription. The subscription must be a
+// non-capturing fn pointer, AND iced runs it on a different thread than update(),
+// so these are process-wide atomics (NOT thread-locals — those wouldn't be visible
+// across the two threads). Set in StartTileDrag, read in the subscription closure.
+// DRAG_START_Y uses i64::MIN as "unset" (the first move stamps it).
+static DRAG_ORIGIN: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static DRAG_N: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+static DRAG_START_Y: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN);
+static DRAG_LAST_SLOT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
 
 // Logical row PITCH in the Settings tile list (header + divider spacing) —
 // the recessed drop-well height and the cursor-delta → slot math key off this.
@@ -853,7 +863,7 @@ enum Message {
     OpenCpuDriver, DismissCpuTempHint,
     SwitchWidgetDevice(Option<String>), SetShowRemoteStatusDot(bool),
     ToggleTileSection(String), SetTileField(String, bool),
-    StartTileDrag(String), TileDragMove(f32), TileDragEnd, DragAnimTick,
+    StartTileDrag(String), SetDropTarget(usize), TileDragEnd,
     CpuDriverMoreInfo, CpuDriverBack,
     CpuDriverInstall, CpuDriverUninstall,
     CpuDriverInstallDone(cpu_driver::Outcome),
@@ -1089,7 +1099,7 @@ impl App {
         if preview {
             if let Some(drag) = &self.tile_drag {
                 let n = order.len();
-                let target = (drag.gap_anim.round() as i64).clamp(0, n as i64 - 1) as usize;
+                let target = drag.target_index.min(n.saturating_sub(1));
                 if let Some(cur) = order.iter().position(|t| t == &drag.name) {
                     if cur != target { let item = order.remove(cur); order.insert(target, item); }
                 }
@@ -1105,8 +1115,7 @@ impl App {
     // Visible tiles in their stable, committed order (ignores any in-flight drag) —
     // used to build the widget so element identity stays put while tiles glide.
     fn current_tiles_base(&self) -> Vec<String> { self.current_tiles_ordered(false) }
-    // Ease each visible tile's slot toward its target index in the (preview) order.
-    // Returns true once every tile has settled onto an integer slot.
+    #[allow(dead_code)] // reorder no longer eases; kept for the preview helper below
     fn ease_tile_slots(&mut self) -> bool {
         if self.tile_slots.is_empty() { return true; }
         let order = self.current_tiles();
@@ -1725,70 +1734,31 @@ impl App {
             }
             Message::StartTileDrag(name) => {
                 let origin_index = self.settings.tile_order.iter().position(|t| t == &name).unwrap_or(0);
-                self.tile_drag = Some(TileDrag {
-                    name,
-                    origin_index,
-                    start_y: None,
-                    cursor_y: 0.0,
-                    gap_anim: origin_index as f32,
-                });
+                self.tile_drag = Some(TileDrag { name, origin_index, target_index: origin_index });
+                // Reset the discrete-drag trackers for this fresh drag (shared with
+                // the reorder subscription via atomics).
+                use std::sync::atomic::Ordering::Relaxed;
+                DRAG_ORIGIN.store(origin_index as i64, Relaxed);
+                DRAG_N.store(self.settings.tile_order.len().max(1) as i64, Relaxed);
+                DRAG_START_Y.store(i64::MIN, Relaxed);
+                DRAG_LAST_SLOT.store(-1, Relaxed);
                 // Collapse any open accordion so the list height is stable while dragging.
                 self.tiles_section = None;
-                // Seed each visible tile's eased slot at its current position so the
-                // widget can glide them to the new order as the drag progresses.
-                self.tile_slots = self.current_tiles_base().into_iter().enumerate()
-                    .map(|(i, n)| (n, i as f32)).collect();
-                // Lift the widget back to AlwaysOnTop so it presents at full rate
-                // while we drag (otherwise the background widget's glide stutters).
                 self.update_widget_level()
             }
-            Message::TileDragMove(y) => {
+            // The reorder subscription computes which slot the cursor is over and
+            // only sends this when that slot CHANGES — so a drag repaints a handful
+            // of times instead of ~60×/sec, which is what fixes the stutter.
+            Message::SetDropTarget(idx) => {
                 if let Some(drag) = self.tile_drag.as_mut() {
-                    drag.cursor_y = y;
-                    if drag.start_y.is_none() {
-                        drag.start_y = Some(y);
-                    }
-                }
-                Task::none()
-            }
-            Message::DragAnimTick => {
-                // Glide the drop gap toward the slot the cursor is over — a clean
-                // ease (no overshoot/bounce) so it tracks like the floating bar.
-                if let Some(drag) = self.tile_drag.as_mut() {
-                    let n = self.settings.tile_order.len().max(1);
-                    let target = match drag.start_y {
-                        Some(sy) => {
-                            let moved = ((drag.cursor_y - sy) / TILE_ROW_H).round() as i64;
-                            (drag.origin_index as i64 + moved).clamp(0, n as i64 - 1) as f32
-                        }
-                        None => drag.origin_index as f32,
-                    };
-                    drag.gap_anim += (target - drag.gap_anim) * 0.45;
-                    if (target - drag.gap_anim).abs() < 0.01 { drag.gap_anim = target; }
-                }
-                // Glide the widget's tiles toward the (preview) order.
-                let was_animating = !self.tile_slots.is_empty();
-                self.ease_tile_slots();
-                // When the post-drop settle finishes, drop the widget back to its
-                // normal level (it was held AlwaysOnTop for a smooth glide).
-                if was_animating && self.tile_slots.is_empty() && self.tile_drag.is_none() {
-                    return self.update_widget_level();
+                    drag.target_index = idx.min(self.settings.tile_order.len().saturating_sub(1));
                 }
                 Task::none()
             }
             Message::TileDragEnd => {
                 if let Some(drag) = self.tile_drag.take() {
-                    // Commit the move: lift the dragged tile out and drop it at the target slot.
-                    let target = {
-                        let n = self.settings.tile_order.len();
-                        match drag.start_y {
-                            Some(sy) => {
-                                let moved = ((drag.cursor_y - sy) / TILE_ROW_H).round() as i64;
-                                (drag.origin_index as i64 + moved).clamp(0, n as i64 - 1) as usize
-                            }
-                            None => drag.origin_index,
-                        }
-                    };
+                    // Commit the move to the slot the drop-line settled on.
+                    let target = drag.target_index.min(self.settings.tile_order.len().saturating_sub(1));
                     if let Some(cur) = self.settings.tile_order.iter().position(|t| t == &drag.name) {
                         if cur != target {
                             let item = self.settings.tile_order.remove(cur);
@@ -1796,8 +1766,11 @@ impl App {
                         }
                     }
                     let _ = self.settings.save();
-                    // Order changed — the widget re-renders in the new order.
-                    return self.resize_widget();
+                    DRAG_START_Y.store(i64::MIN, std::sync::atomic::Ordering::Relaxed);
+                    DRAG_LAST_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
+                    // Order changed — re-render the widget, and drop it back to its
+                    // normal window level (it was held AlwaysOnTop during the drag).
+                    return Task::batch([self.resize_widget(), self.update_widget_level()]);
                 }
                 Task::none()
             }
@@ -2813,7 +2786,7 @@ impl App {
                     let e = t.elapsed().as_secs_f32();
                     if e < 0.9 { 1.0 } else { ((1.8 - e) / 0.9).clamp(0.0, 1.0) }
                 }).unwrap_or(0.0);
-                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.cpu_pawnio_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)), self.share_dialog.clone(), copied_opacity, self.settings.tile_order.clone(), self.tile_drag.as_ref().map(|d| (d.name.clone(), d.gap_anim, d.cursor_y)))
+                settings_panel::view(&self.settings, p, id, self.theme_name(), self.disk_options(), self.adapter_options(), self.font_list.clone(), cpu_name, gpu_name, self.editing_color, self.settings_tab, capturing_ct, self.appearance_status.clone(), update, self.cpu_driver_installed, self.cpu_pawnio_installed, self.tiles_section.clone(), self.preset_arming, self.appearance_undo.last().map(|a| style::parse_hex(&a.accent, p.accent)), self.share_dialog.clone(), copied_opacity, self.settings.tile_order.clone(), self.tile_drag.as_ref().map(|d| (d.name.clone(), d.target_index)))
             }
             WindowKind::Alerts => popups::alerts_view(&self.settings, p, id, self.editing_warn_color.as_deref()),
             WindowKind::GameMode => popups::game_mode_view(&self.settings, p, id, self.capturing_hotkey == Some(hotkeys::HotkeyTarget::GameMode)),
@@ -2975,10 +2948,11 @@ impl App {
         let remote_warns: &[flux_core::settings::TileWarning] =
             dev.map(|d| d.popout.warnings.as_slice()).unwrap_or(&[]);
 
-        // Build tiles in the STABLE committed order so element identity stays put
-        // while they glide; the eased slot in `tile_slots` does the repositioning.
+        // Build tiles in the LIVE order — during a Settings drag this is the
+        // preview order (dragged tile at its target slot), so the widget mirrors
+        // the reorder as you drag; otherwise it's the committed order.
         let mut tiles: Vec<(String, Element<'_, Message>)> = Vec::new();
-        for name in self.current_tiles_base() {
+        for name in self.current_tiles() {
             let w = if is_remote {
                 warn_view_for(remote_warns, &name, snap, self.flash_on)
             } else {
@@ -3181,41 +3155,36 @@ impl App {
         if self.share_copied_at.is_some() {
             subs.push(iced::time::every(Duration::from_millis(50)).map(|_| Message::CopiedFadeTick));
         }
-        // While dragging a tile row, follow the cursor and end on mouse-up.
+        // While dragging a tile row: compute which slot the cursor is over and emit
+        // SetDropTarget ONLY when that slot changes. iced repaints every window on
+        // every message, so emitting per-move (60–1000Hz) was what flooded the
+        // present stream and stuttered the drag. Slot-change-only means a handful of
+        // repaints for a whole drag — no continuous animation timer needed. Mouse-up
+        // always commits. (origin/n are captured fresh each drag; the subscription is
+        // torn down between drags since it's gated on tile_drag.is_some().)
         if self.tile_drag.is_some() {
-            // Throttle cursor-move events to ~60fps, matching the 16ms DragAnimTick
-            // glide. iced redraws EVERY window on every message, so a high-polling
-            // mouse (up to 1000Hz) would otherwise flood each move into a redraw of
-            // BOTH the heavy settings list and the widget. Capping at 125fps still
-            // overloaded the expensive settings panel (its drag bar trailed the
-            // lightweight widget); one coherent 60fps rate lets the heavy window keep
-            // up, so both stay smooth. Mouse-up always passes.
-            thread_local! {
-                static LAST_MOVE: std::cell::Cell<Option<std::time::Instant>> =
-                    std::cell::Cell::new(None);
-            }
             subs.push(iced::event::listen_with(|event, _status, _id| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                    LAST_MOVE.with(|c| {
-                        let now = std::time::Instant::now();
-                        if c.get().map_or(true, |t| now.duration_since(t) >= Duration::from_millis(16)) {
-                            c.set(Some(now));
-                            Some(Message::TileDragMove(position.y))
-                        } else {
-                            None
-                        }
-                    })
+                    use std::sync::atomic::Ordering::Relaxed;
+                    let y = position.y as i64;
+                    let mut sy = DRAG_START_Y.load(Relaxed);
+                    if sy == i64::MIN { DRAG_START_Y.store(y, Relaxed); sy = y; }
+                    let origin = DRAG_ORIGIN.load(Relaxed);
+                    let n = DRAG_N.load(Relaxed);
+                    let moved = (((y - sy) as f32) / TILE_ROW_H).round() as i64;
+                    let slot = (origin + moved).clamp(0, n - 1);
+                    // Only emit (→ repaint) when the target slot actually changes.
+                    if DRAG_LAST_SLOT.swap(slot, Relaxed) != slot {
+                        Some(Message::SetDropTarget(slot as usize))
+                    } else {
+                        None
+                    }
                 }
                 iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
                     Some(Message::TileDragEnd)
                 }
                 _ => None,
             }));
-        }
-        // Drive the drop-gap glide even when the cursor is momentarily still, and
-        // keep ticking through the post-drop settle while tiles are still gliding.
-        if self.tile_drag.is_some() || !self.tile_slots.is_empty() {
-            subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::DragAnimTick));
         }
         Subscription::batch(subs)
     }

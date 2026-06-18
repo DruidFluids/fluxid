@@ -151,8 +151,8 @@ pub fn view<'a>(
     share_dialog: Option<(bool, String)>,
     copied_opacity: f32,
     tile_order: Vec<String>,
-    // Active drag-reorder: (tile name, drop-gap slot, cursor y in window).
-    drag: Option<(String, f32, f32)>,
+    // Active drag-reorder: (tile name being dragged, target drop-slot index).
+    drag: Option<(String, usize)>,
 ) -> Element<'a, Message> {
     // ── Style helpers ──
     let sh = |label: &str, tip: &'static str| -> Element<'a, Message> {
@@ -633,21 +633,24 @@ pub fn view<'a>(
         if !display_order.contains(&c) { display_order.push(c); }
     }
 
-    // Drag state: the dragged tile pops up and floats over the rows for a 3D
-    // lift; the other rows part to open a recessed drop "well" that glides to
-    // the slot the cursor is over.
+    // Drag state. As you drag, the list snaps to the LIVE preview order (the
+    // dragged row at its target slot) and the dragged row stays visible, highlighted
+    // in place. The order only changes when the cursor crosses a slot (driven by
+    // SetDropTarget), so the list repaints a handful of times per drag — that's the
+    // stutter fix.
     let drag_name: Option<&str> = drag.as_ref().map(|d| d.0.as_str());
-    let gap_anim = drag.as_ref().map(|d| d.1).unwrap_or(0.0);
-    let drag_cursor_y = drag.as_ref().map(|d| d.2).unwrap_or(0.0);
-    let dragging = drag_name.is_some();
-    // Floating-bar height (the lifted row itself) — shorter than the list row
-    // PITCH (crate::TILE_ROW_H), which is what the drop-well uses.
+    let drop_target: usize = drag.as_ref().map(|d| d.1).unwrap_or(0);
+    // Row header height (pinned so expanding one row doesn't squeeze the others).
     const FLOAT_H: f32 = 44.0;
-    // The lifted, floating copy of the dragged row (rendered in the overlay).
-    let mut floating_drag: Option<Element<'a, Message>> = None;
+    // Reorder the rows into the live preview order while dragging.
+    if let Some(name) = drag_name {
+        if let Some(cur) = display_order.iter().position(|t| *t == name) {
+            let t = drop_target.min(display_order.len().saturating_sub(1));
+            if cur != t { let item = display_order.remove(cur); display_order.insert(t, item); }
+        }
+    }
 
     let mut tcol = column![].spacing(0);
-    let mut reduced: Vec<Element<'a, Message>> = Vec::new();
     let last = display_order.len() - 1;
     for (i, &name) in display_order.iter().enumerate() {
         let canon_idx = CANON.iter().position(|c| *c == name).unwrap();
@@ -707,39 +710,15 @@ pub fn view<'a>(
         // squeezes the column and the other rows shrink — clipping their names.
         .height(Length::Fixed(FLOAT_H))
         .style(move |_| iced::widget::container::Style {
-            // Lift the row being dragged.
-            background: if is_dragging { Some(iced::Background::Color(iced::Color { a: 0.16, ..p.accent })) } else { None },
-            border: Border { radius: 8.0.into(), ..Border::default() },
+            // Highlight the row being dragged so it reads as "grabbed".
+            background: if is_dragging { Some(iced::Background::Color(iced::Color { a: 0.22, ..p.accent })) } else { None },
+            border: if is_dragging {
+                Border { radius: 8.0.into(), width: 1.0, color: p.accent }
+            } else {
+                Border { radius: 8.0.into(), ..Border::default() }
+            },
             ..Default::default()
         });
-        if is_dragging {
-            // Pop this row up — opaque, accent edge + drop shadow so it reads as
-            // lifted toward you, floating over the others. Leave a recessed well
-            // in its slot so the surrounding rows stay put (no reflow).
-            floating_drag = Some(
-                container(header)
-                    // Bound the height — the grip's center_y(Fill) would otherwise
-                    // stretch to the full overlay (whole-window) height.
-                    .height(Length::Fixed(FLOAT_H))
-                    .style(move |_| iced::widget::container::Style {
-                        background: Some(iced::Background::Color(iced::Color { a: 1.0, ..p.bg })),
-                        border: Border { radius: 10.0.into(), width: 1.0, color: p.accent },
-                        shadow: iced::Shadow {
-                            color: iced::Color { a: 0.5, ..iced::Color::BLACK },
-                            offset: iced::Vector::new(0.0, 8.0),
-                            blur_radius: 22.0,
-                        },
-                        ..Default::default()
-                    })
-                    .into(),
-            );
-            continue;
-        }
-        if dragging {
-            // The surviving rows are reassembled below, parted around the gap.
-            reduced.push(header.into());
-            continue;
-        }
         tcol = tcol.push(header);
         let body = bodies[canon_idx].take().unwrap();
         if open {
@@ -749,46 +728,6 @@ pub fn view<'a>(
             );
         }
         if i != last { tcol = tcol.push(row_divider()); }
-    }
-    if dragging {
-        // Reassemble the surviving rows with a recessed drop well opened at the
-        // (eased) gap position — split across the seam so the rows glide aside.
-        let m = reduced.len();
-        let g = gap_anim.clamp(0.0, m as f32);
-        let floor_g = g.floor() as usize;
-        let frac = g - g.floor();
-        let well = |h: f32| -> Element<'a, Message> {
-            container(Space::with_height(Length::Fixed(h)))
-                .width(Length::Fill)
-                .style(move |_| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(iced::Color { a: 0.06, ..p.muted })),
-                    border: Border { radius: 8.0.into(), width: 1.0, color: iced::Color { a: 0.18, ..p.accent } },
-                    ..Default::default()
-                })
-                .into()
-        };
-        let mut reduced_opt: Vec<Option<Element<'a, Message>>> =
-            reduced.into_iter().map(Some).collect();
-        let mut col = column![].spacing(0);
-        for ins in 0..=m {
-            let gh = if ins == floor_g {
-                crate::TILE_ROW_H * (1.0 - frac)
-            } else if ins == floor_g + 1 {
-                crate::TILE_ROW_H * frac
-            } else {
-                0.0
-            };
-            if gh > 0.5 {
-                col = col.push(well(gh));
-            }
-            if ins < m {
-                col = col.push(reduced_opt[ins].take().unwrap());
-                if ins != m - 1 {
-                    col = col.push(row_divider());
-                }
-            }
-        }
-        tcol = col;
     }
     tcol = tcol.push(Space::with_height(14));
     tcol = tcol.push(sh("Layout", "Stack tiles vertically (tall) or horizontally (wide)."));
@@ -1608,28 +1547,11 @@ pub fn view<'a>(
             ..Default::default()
         });
 
-    // Modal share-code dialog (Import/Export) + the floating drag row, layered
-    // over the settings window.
+    // Modal share-code dialog (Import/Export) layered over the settings window.
+    // (The drag reorder no longer floats a row — it shows an in-list drop-line.)
     let mut layers: Vec<Element<'a, Message>> = vec![window.into()];
     if let Some((is_export, code)) = share_dialog {
         layers.push(share_dialog_view(is_export, code, copied_opacity, sunken, hairline, p));
-    }
-    if let Some(fl) = floating_drag {
-        // Float the lifted row at the cursor (window-relative y), aligned with
-        // the list (body 20 + card 16 + 1 border ≈ 37px insets).
-        let top = (drag_cursor_y - FLOAT_H / 2.0).max(0.0);
-        layers.push(
-            column![
-                Space::with_height(Length::Fixed(top)),
-                container(fl)
-                    .width(Length::Fill)
-                    .height(Length::Shrink)
-                    .padding(iced::Padding { top: 0.0, right: 37.0, bottom: 0.0, left: 37.0 }),
-            ]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into(),
-        );
     }
     if layers.len() == 1 {
         layers.pop().unwrap()
