@@ -14,9 +14,15 @@ use std::sync::{Mutex, OnceLock};
 /// without threading the flag through every view signature.
 static ROUND_CORNERS: AtomicBool = AtomicBool::new(true);
 pub fn set_round_corners(on: bool) { ROUND_CORNERS.store(on, Ordering::Relaxed); }
+#[allow(dead_code)]
 pub fn corners_rounded() -> bool { ROUND_CORNERS.load(Ordering::Relaxed) }
-/// A corner radius gated on the rounded-corners toggle (0.0 when off).
-pub fn win_radius(r: f32) -> f32 { if corners_rounded() { r } else { 0.0 } }
+/// Outer-window frame radius. DWM now rounds the actual OS window corners (see
+/// `set_window_rounded` in main.rs) — a compositor-level clip that works on every
+/// GPU — so iced's own window frames stay SQUARE. A non-zero iced radius would
+/// leave transparent corner triangles that hwnd-swapchain GPUs (e.g. AMD)
+/// composite as opaque black instead of letting the desktop through. The arg is
+/// kept so call sites still read their design radius as intent.
+pub fn win_radius(_r: f32) -> f32 { 0.0 }
 
 /// Title-bar brand "blip": the logo briefly brightens + thickens when a window
 /// opens, then settles. Self-driven by the BrandPulse canvas reading the phase.

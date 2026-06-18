@@ -420,13 +420,13 @@ fn dwm_round_hwnd(hwnd: windows::Win32::Foundation::HWND, round: bool) {
         );
     }
 }
-fn set_window_rounded(_round: bool) {
-    // DWM rounds at a fixed ~8px radius that fights iced's larger corner radius
-    // (dark wedge in the corner). With a transparent surface, iced renders the
-    // rounded corners itself, so we DISABLE DWM rounding (square OS window) and
-    // let iced's radius be the single source of truth.
+fn set_window_rounded(round: bool) {
+    // DWM rounds the actual OS window at the compositor — a clip that works on
+    // every GPU. iced's own frame stays SQUARE (win_radius -> 0) so the corners
+    // hold no transparent pixels; a transparent corner triangle is composited as
+    // opaque black on hwnd-swapchain GPUs (AMD) instead of showing the desktop.
     if let Some(hwnd) = widget_hwnd() {
-        dwm_round_hwnd(hwnd, false);
+        dwm_round_hwnd(hwnd, round);
     }
 }
 // Apply the corner preference to EVERY top-level window owned by this process —
@@ -441,16 +441,16 @@ fn set_all_windows_rounded(round: bool) {
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
     };
-    let _ = round; // iced now owns the rounding (see set_window_rounded).
-    struct Ctx { own_pid: u32 }
-    let mut ctx = Ctx { own_pid: unsafe { GetCurrentProcessId() } };
+    struct Ctx { own_pid: u32, round: bool }
+    let mut ctx = Ctx { own_pid: unsafe { GetCurrentProcessId() }, round };
     unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> BOOL {
         let ctx = &mut *(lp.0 as *mut Ctx);
         let mut wpid = 0u32;
         GetWindowThreadProcessId(h, Some(&mut wpid));
         if wpid == ctx.own_pid && IsWindowVisible(h).as_bool() {
-            // DISABLE DWM rounding so it doesn't clip iced's larger radius.
-            dwm_round_hwnd(h, false);
+            // DWM owns the rounding now (iced frames are square) — apply the
+            // user's toggle to every window so they all round/square together.
+            dwm_round_hwnd(h, ctx.round);
         }
         BOOL(1)
     }
@@ -2856,7 +2856,7 @@ impl App {
             .width(Length::Fill).height(Length::Fill).padding(6)
             .style(move |_| iced::widget::container::Style {
                 background: Some(iced::Background::Color(p.bg)),
-                border: Border { radius: 12.0.into(), width: skin.widget_border, color: widget_border },
+                border: Border { radius: style::win_radius(12.0).into(), width: skin.widget_border, color: widget_border },
                 ..Default::default()
             });
         mouse_area(root).on_press(Message::DragWindow(id)).into()
@@ -3046,11 +3046,10 @@ impl App {
             iced::Shadow::default()
         };
         // Tighter top inset so the gear/X bar hugs the top edge (less empty
-        // space). The OS-level rounding is handled by set_window_rounded (DWM);
-        // the iced background must also drop its radius when corners are off,
-        // otherwise it keeps drawing its own rounded fill and the widget still
-        // looks rounded even with DWM squared.
-        let corner_radius = if self.settings.round_corners { skin.widget_radius } else { 0.0 };
+        // space). The OS window corners are rounded by DWM (set_window_rounded);
+        // the iced frame stays SQUARE (win_radius -> 0) so no transparent corner
+        // triangle is left for hwnd-swapchain GPUs (AMD) to composite as black.
+        let corner_radius = style::win_radius(skin.widget_radius);
         let root = container(shell)
             .width(Length::Fill).height(Length::Fill)
             .padding(iced::Padding { top: 4.0, right: 8.0, bottom: 8.0, left: 8.0 })
