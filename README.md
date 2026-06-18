@@ -83,20 +83,14 @@ Hit the <img src="docs/images/die.svg" height="15" alt="randomize"> for a random
 
 ### Colors
 
-100+ color presets — light or dark, plus full control over your own 5-color palette. A few favorites:
+100+ color presets — light or dark, vibrant or muted — plus full control over your own 5-color palette. A sampler of the range, name under each so you can grab the one you like:
 
-<div align="center">
-<img src="docs/images/color-default.png" alt="Default" width="140">
-<img src="docs/images/color-tokyo-night.png" alt="Tokyo Night" width="140">
-<img src="docs/images/color-dracula.png" alt="Dracula" width="140">
-<img src="docs/images/color-catppuccin-mocha.png" alt="Catppuccin Mocha" width="140">
-<img src="docs/images/color-gruvbox.png" alt="Gruvbox" width="140">
-<img src="docs/images/color-nord.png" alt="Nord" width="140">
-<img src="docs/images/color-synthwave.png" alt="Synthwave '84" width="140">
-<img src="docs/images/color-everforest-dark.png" alt="Everforest Dark" width="140">
-<img src="docs/images/color-snazzy-light.png" alt="Snazzy Light" width="140">
-<img src="docs/images/color-light.png" alt="Light (default)" width="140">
-</div>
+|  |  |  |  |  |
+|:--:|:--:|:--:|:--:|:--:|
+| <img src="docs/images/color-default.png" alt="Dark (default)" width="120"> | <img src="docs/images/color-synthwave.png" alt="Synthwave '84" width="120"> | <img src="docs/images/color-dracula.png" alt="Dracula" width="120"> | <img src="docs/images/color-rose-pine.png" alt="Rosé Pine" width="120"> | <img src="docs/images/color-gruvbox.png" alt="Gruvbox" width="120"> |
+| **Dark (default)** | **Synthwave '84** | **Dracula** | **Rosé Pine** | **Gruvbox** |
+| <img src="docs/images/color-material-darker.png" alt="Material Darker" width="120"> | <img src="docs/images/color-monokai-pro.png" alt="Monokai Pro" width="120"> | <img src="docs/images/color-nord.png" alt="Nord" width="120"> | <img src="docs/images/color-solarized-light.png" alt="Solarized Light" width="120"> | <img src="docs/images/color-snazzy-light.png" alt="Snazzy Light" width="120"> |
+| **Material Darker** | **Monokai Pro** | **Nord** | **Solarized Light** | **Snazzy Light** |
 
 ### CPU temperature
 
@@ -218,7 +212,15 @@ See [`docs/INSTALLER.md`](docs/INSTALLER.md) for the full command-line reference
 
 ### Uninstall
 
-**Settings → Apps → Flux → Uninstall** (or Control Panel → Programs and Features). Your settings in `%APPDATA%\Flux` are kept unless you uninstall from the command line with `--remove-settings`.
+**Settings → Apps → Flux → Uninstall** (or Control Panel → Programs and Features) opens the same themed wizard as the installer — not a silent wipe. A single checkbox, **on by default**, does a complete removal: your settings/themes/skins in `%APPDATA%\Flux`, the optional CPU-temperature sensor service, and the PawnIO driver Flux installed. Uncheck it to keep your configuration for a future reinstall.
+
+<div align="center">
+<img src="docs/images/uninstaller.png" alt="GUI uninstaller" width="340">
+<br>
+<sub>One checkbox for a clean, complete removal — no leftovers.</sub>
+</div>
+
+For scripted removal, `flux-setup.exe --uninstall /S` runs headless (add `--remove-settings` to also wipe `%APPDATA%\Flux`).
 
 ---
 
