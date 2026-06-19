@@ -1225,8 +1225,35 @@ pub fn view<'a>(
             _ => "No release notes available \u{2014} check your internet connection, or open the \"Verification\" tab to read how updates work.".to_string(),
         }
     };
+    // The version these notes describe — the header only shows the INSTALLED
+    // version, so without this you couldn't tell which version an available update
+    // actually is. Centered at the top of the box; accented when it's pending.
+    let changelog_version: Option<String> = if update.show_info {
+        None
+    } else {
+        match (&update.available, &update.latest_changelog) {
+            (Some((v, _)), _) => Some(v.clone()),
+            (None, Some((v, _))) => Some(v.clone()),
+            _ => None,
+        }
+    };
+    let updating = update.available.is_some();
+    let mut box_inner = column![].spacing(6);
+    if let Some(ver) = changelog_version {
+        let v = ver.trim_start_matches('v'); // release tags are "v1.2.3" — avoid "vv"
+        let label = if updating { format!("v{v} available") } else { format!("v{v}") };
+        box_inner = box_inner.push(
+            container(text(label).size(12)
+                .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+                .style(move |_| iced::widget::text::Style { color: Some(if updating { p.accent } else { p.text }) }))
+                .width(Length::Fill).center_x(Length::Fill)
+        );
+    }
+    box_inner = box_inner.push(
+        scrollable(container(changelog_md(&body_md, p)).padding(iced::Padding { top: 0.0, right: 14.0, bottom: 0.0, left: 0.0 })).width(Length::Fill).height(Length::Fill).style(crate::style::scrollable_style(p))
+    );
     updates_col = updates_col.push(
-        container(scrollable(container(changelog_md(&body_md, p)).padding(iced::Padding { top: 0.0, right: 14.0, bottom: 0.0, left: 0.0 })).width(Length::Fill).height(Length::Fill).style(crate::style::scrollable_style(p)))
+        container(box_inner)
             .padding(8).width(Length::Fill).height(Length::Fill)
             .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(crate::style::field_bg(p))), border: Border { radius: 6.0.into(), ..Border::default() }, ..Default::default() })
     );
