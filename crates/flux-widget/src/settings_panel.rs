@@ -1404,7 +1404,11 @@ pub fn view<'a>(
                         } else {
                             iced::Color::TRANSPARENT
                         })),
-                        text_color: if on { bg_opaque } else { p.muted },
+                        // Inactive label: derive from p.text (always contrasts with
+                        // bg) at reduced opacity, NOT p.muted — muted can sit too
+                        // close to the sunken bar on light themes (hard to read) and
+                        // is dimmed further by the muted-visibility slider.
+                        text_color: if on { bg_opaque } else { iced::Color { a: 0.62, ..p.text } },
                         border: Border { radius: 9.0.into(), ..Default::default() },
                         ..Default::default()
                     }
