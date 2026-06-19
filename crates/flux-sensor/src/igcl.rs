@@ -32,20 +32,25 @@ struct AppId {
     d4: [u8; 8],
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct VersionInfo {
-    major: u16,
-    minor: u16,
+// `ctl_version_info_t` is a scalar `typedef uint32_t` (NOT a {u16,u16} struct) —
+// `CTL_MAKE_VERSION(major, minor) = (major << 16) | (minor & 0xffff)`. Getting this
+// wrong (a 2-byte-aligned struct) pushed AppVersion from its real offset 8 to 6, so
+// strict drivers read a garbage major version and reject ctlInit with
+// UNSUPPORTED_VERSION even when the requested version is supported.
+fn make_version(major: u16, minor: u16) -> u32 {
+    ((major as u32) << 16) | (minor as u32)
+}
+fn version_parts(v: u32) -> (u16, u16) {
+    ((v >> 16) as u16, (v & 0xffff) as u16)
 }
 
 #[repr(C)]
 struct InitArgs {
     size: u32,
     version: u8,
-    app_version: VersionInfo,
+    app_version: u32,       // ctl_version_info_t (uint32_t @ offset 8, 4-aligned)
     flags: u32,
-    supported_version: VersionInfo,
+    supported_version: u32,
     application_uid: AppId,
 }
 
@@ -81,16 +86,24 @@ const TEMP_SUPPORTED_OFFSET: usize = TEMP_ITEM_OFFSET;
 const TEMP_UNITS_OFFSET: usize = TEMP_ITEM_OFFSET + 4;
 const TEMP_VALUE_OFFSET: usize = TEMP_ITEM_OFFSET + 16;
 
-/// A nonzero application UID (IGCL rejects an all-zero UID).
+/// ApplicationUIDs to try, in order. A driver may want the zeroed UID (Intel's
+/// own samples pass zero) or accept any nonzero one; a strict newer driver rejects
+/// an unregistered nonzero UID with UNKNOWN_APPLICATION_UID. Verified on a
+/// Server-2022 iGPU: the zeroed UID is accepted, the nonzero one is not — so try
+/// zero first, then the nonzero fallback for older drivers. (The earlier belief
+/// that all-zero was rejected was actually the AppVersion struct-layout bug.)
+const ZERO_UID: AppId = AppId { d1: 0, d2: 0, d3: 0, d4: [0; 8] };
 const APP_UID: AppId = AppId {
     d1: 0xF100_D000,
     d2: 0x4C5F,
     d3: 0x11EE,
     d4: [0xB9, 0x62, 0x02, 0x42, 0xAC, 0x12, 0x00, 0x02],
 };
+const APP_UIDS: &[AppId] = &[ZERO_UID, APP_UID];
 
-/// AppVersions to try for `ctlInit`, in order. The driver reported "supported
-/// v1.1", and the v1.0 request was rejected — so try a small matrix.
+/// AppVersions to try for `ctlInit`, in order. v1.1 is the current impl version
+/// (CTL_IMPL_MAJOR/MINOR_VERSION) and is accepted first on the tested driver; the
+/// rest are a small fallback matrix for other driver revisions.
 const APP_VERSIONS: &[(u16, u16)] = &[(1, 1), (1, 2), (1, 3), (2, 0), (1, 0)];
 
 /// Telemetry buffer: generously larger than any plausible ctl_power_telemetry_t,
@@ -125,22 +138,24 @@ unsafe fn resolve(hmod: HMODULE) -> Option<(FnInit, FnEnumerate, FnTelemetry, Fn
     Some((init, enumerate, telemetry, close))
 }
 
-/// Sweep AppVersions until `ctlInit` succeeds. Returns the api handle + the
-/// (major,minor) that worked.
+/// Sweep ApplicationUID × AppVersion until `ctlInit` succeeds. Returns the api
+/// handle + the (major,minor) that worked.
 unsafe fn try_init(init: FnInit) -> Option<(ApiHandle, (u16, u16))> {
-    for &(major, minor) in APP_VERSIONS {
+    for &uid in APP_UIDS {
+      for &(major, minor) in APP_VERSIONS {
         let mut args = InitArgs {
             size: std::mem::size_of::<InitArgs>() as u32,
             version: 0,
-            app_version: VersionInfo { major, minor },
+            app_version: make_version(major, minor),
             flags: 0,
-            supported_version: VersionInfo { major: 0, minor: 0 },
-            application_uid: APP_UID,
+            supported_version: 0,
+            application_uid: uid,
         };
         let mut api: ApiHandle = null_mut();
         if init(&mut args, &mut api) == 0 && !api.is_null() {
             return Some((api, (major, minor)));
         }
+      }
     }
     None
 }
@@ -312,20 +327,18 @@ unsafe fn probe_inner(s: &mut String) {
             let mut args = InitArgs {
                 size: std::mem::size_of::<InitArgs>() as u32,
                 version: 0,
-                app_version: VersionInfo { major, minor },
+                app_version: make_version(major, minor),
                 flags: 0,
-                supported_version: VersionInfo { major: 0, minor: 0 },
+                supported_version: 0,
                 application_uid: uid,
             };
             let mut h: ApiHandle = null_mut();
             let r = init(&mut args, &mut h);
-            let sup = args.supported_version;
+            let (smaj, smin) = version_parts(args.supported_version);
             let _ = writeln!(
                 s,
-                "  ctlInit uid={uid_name} v{major}.{minor}: result=0x{r:08X} {}  supported=v{}.{}  handle={}",
+                "  ctlInit uid={uid_name} v{major}.{minor}: result=0x{r:08X} {}  supported=v{smaj}.{smin}  handle={}",
                 result_name(r),
-                sup.major,
-                sup.minor,
                 if h.is_null() { "null" } else { "set" },
             );
             if r == 0 && !h.is_null() {
