@@ -353,14 +353,14 @@ pub fn gpu_tile<'a>(gpu: &GpuData, s: &AppSettings, p: Palette, w: WarnView) -> 
                 primary = primary.push(big(tv, p, s)).push(unit_inline(tu, accent, s)).push(Space::with_width(8));
             }
             // Integrated GPU with NO separate sensor: a chain glyph marks that the
-            // temperature is shared with (linked to) the CPU die. Discrete GPUs with
-            // no temp show nothing (unchanged).
+            // part doesn't report its own temperature and shares the CPU package's
+            // thermal sensor. Discrete GPUs with no temp show nothing (unchanged).
             None if gpu.is_integrated => {
                 let chain = text("\u{1F517}").size(sz(15, s.primary_font_offset, s))
                     .font(iced::Font::with_name("Segoe UI Symbol"))
                     .style(move |_| iced::widget::text::Style { color: Some(p.muted) });
                 primary = primary
-                    .push(crate::style::with_tip(chain, "Integrated GPU \u{2014} temperature is shared with the CPU", p))
+                    .push(crate::style::with_tip(chain, "Integrated GPU \u{2014} no separate temperature is reported; it shares the CPU package sensor", p))
                     .push(Space::with_width(8));
             }
             None => {}
