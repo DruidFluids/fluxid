@@ -79,6 +79,23 @@ fn main() -> iced::Result {
         }
     }
 
+    // Cross-platform GPU diagnostic (hidden `--gpu-debug`): dump the selected
+    // backend's live metrics + (on Windows) the raw DXGI/D3DKMT data, write it to a
+    // file and open it. Used to verify clock/VRAM across vendors and old hardware.
+    if std::env::args().any(|a| a == "--gpu-debug") {
+        let report = flux_sensor::gpu_debug_report();
+        let path = std::env::temp_dir().join("flux-gpu-debug.txt");
+        let _ = std::fs::write(&path, &report);
+        println!("{report}\n(saved to {})", path.display());
+        #[cfg(windows)]
+        let _ = std::process::Command::new("notepad").arg(&path).spawn();
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open").arg(&path).spawn();
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+        std::process::exit(0);
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();

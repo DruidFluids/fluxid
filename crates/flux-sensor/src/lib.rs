@@ -397,6 +397,109 @@ fn dxgi_query() -> Option<(String, f32, f32, u64)> {
     None
 }
 
+/// Human-readable GPU diagnostic for the hidden `--gpu-debug` flag. Cross-platform:
+/// shows the selected backend and its live metrics on any OS, and on Windows
+/// additionally dumps the raw DXGI adapters + per-node D3DKMT data used to derive
+/// the clock and VRAM — so a clock/VRAM bug on a given GPU (Intel, an old card,
+/// etc.) can be diagnosed from real numbers rather than guessed at.
+pub fn gpu_debug_report() -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    let mut src = select_gpu_source();
+    let id = src.identity();
+    let _ = writeln!(s, "=== Flux GPU debug ===");
+    let _ = writeln!(s, "OS: {}   arch: {}", std::env::consts::OS, std::env::consts::ARCH);
+    let _ = writeln!(s, "backend: {}", src.kind());
+    let _ = writeln!(s, "name: {:?}   integrated: {}", id.name, id.is_integrated);
+    let _ = writeln!(s, "-- 6 live samples (~0.4s apart; run a game/benchmark for a non-idle clock) --");
+    for i in 0..6 {
+        let m = src.read();
+        let f = |o: Option<f32>, suf: &str| o.map(|v| format!("{v:.0}{suf}")).unwrap_or_else(|| "-".into());
+        let _ = writeln!(
+            s,
+            "  [{i}] usage={:>3.0}%  temp={:<5}  clock={:<8}  vram={:.0}/{:.0} MB  fan={}",
+            m.usage_percent,
+            f(m.temperature_c, "C"),
+            f(m.clock_mhz, "MHz"),
+            m.vram_used_mb,
+            m.vram_total_mb,
+            f(m.fan_rpm, "")
+        );
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    }
+    #[cfg(windows)]
+    {
+        let _ = writeln!(s, "\n-- raw DXGI adapters + D3DKMT per-node --");
+        s.push_str(&dxgi_raw_dump());
+    }
+    s
+}
+
+/// Windows-only: enumerate every DXGI adapter with its raw memory figures and,
+/// for each non-software adapter, the per-node D3DKMT clock dump.
+#[cfg(windows)]
+fn dxgi_raw_dump() -> String {
+    use std::fmt::Write;
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory1, IDXGIAdapter3, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE,
+        DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL,
+        DXGI_QUERY_VIDEO_MEMORY_INFO,
+    };
+    let mut s = String::new();
+    unsafe {
+        let factory: IDXGIFactory1 = match CreateDXGIFactory1() {
+            Ok(f) => f,
+            Err(e) => return format!("  CreateDXGIFactory1 failed: {e:?}\n"),
+        };
+        let mut i = 0u32;
+        loop {
+            let adapter = match factory.EnumAdapters1(i) {
+                Ok(a) => a,
+                Err(_) => break,
+            };
+            i += 1;
+            let desc = match adapter.GetDesc1() {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let raw = String::from_utf16_lossy(&desc.Description);
+            let name = raw.trim_end_matches('\0').trim();
+            let software = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0;
+            let _ = writeln!(s, "adapter {i}: {name:?}{}", if software { "  [software]" } else { "" });
+            let _ = writeln!(
+                s,
+                "  dedicated={:.0} MB  shared={:.0} MB",
+                desc.DedicatedVideoMemory as f64 / 1_048_576.0,
+                desc.SharedSystemMemory as f64 / 1_048_576.0
+            );
+            if let Ok(a3) = adapter.cast::<IDXGIAdapter3>() {
+                for (label, grp) in [
+                    ("LOCAL    ", DXGI_MEMORY_SEGMENT_GROUP_LOCAL),
+                    ("NON_LOCAL", DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL),
+                ] {
+                    let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+                    if a3.QueryVideoMemoryInfo(0, grp, &mut info).is_ok() {
+                        let _ = writeln!(
+                            s,
+                            "  {label}: used={:.0} MB  budget={:.0} MB",
+                            info.CurrentUsage as f64 / 1_048_576.0,
+                            info.Budget as f64 / 1_048_576.0
+                        );
+                    }
+                }
+            } else {
+                let _ = writeln!(s, "  (no IDXGIAdapter3 — pre-Win10 memory-info API)");
+            }
+            if software {
+                continue;
+            }
+            s.push_str(&d3dkmt::debug_dump(desc.AdapterLuid));
+        }
+    }
+    s
+}
+
 // Heuristic: is this GPU an integrated/on-die part that shares the CPU's thermal
 // sensor (so it has no separate temperature)?
 //

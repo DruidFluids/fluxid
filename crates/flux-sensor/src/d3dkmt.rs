@@ -16,6 +16,38 @@ use windows::Wdk::Graphics::Direct3D::{
 };
 use windows::Win32::Foundation::{HANDLE, LUID};
 
+/// How many engine nodes to scan for the live clock. The graphics engine isn't
+/// always node 0 (notably on Intel), so we probe a handful. Matches the usage
+/// sampler's node cap; the queries are cheap in-driver lookups.
+const MAX_PERF_NODES: u32 = 16;
+
+/// Query one engine node's perf data (clock/voltage). `None` if the query fails.
+unsafe fn query_node_perf(hadapter: u32, node: u32) -> Option<D3DKMT_NODE_PERFDATA> {
+    let mut perf = D3DKMT_NODE_PERFDATA::default();
+    perf.NodeOrdinal = node;
+    perf.PhysicalAdapterIndex = 0;
+    let mut qai = D3DKMT_QUERYADAPTERINFO {
+        hAdapter: hadapter,
+        Type: KMTQAITYPE_NODEPERFDATA,
+        pPrivateDriverData: &mut perf as *mut _ as *mut core::ffi::c_void,
+        PrivateDriverDataSize: core::mem::size_of::<D3DKMT_NODE_PERFDATA>() as u32,
+    };
+    (D3DKMTQueryAdapterInfo(&mut qai).0 == 0).then_some(perf)
+}
+
+/// Query adapter-level perf data (memory clock / temperature / power / fan).
+unsafe fn query_adapter_perf(hadapter: u32) -> Option<D3DKMT_ADAPTER_PERFDATA> {
+    let mut ad = D3DKMT_ADAPTER_PERFDATA::default();
+    ad.PhysicalAdapterIndex = 0;
+    let mut qai = D3DKMT_QUERYADAPTERINFO {
+        hAdapter: hadapter,
+        Type: KMTQAITYPE_ADAPTERPERFDATA,
+        pPrivateDriverData: &mut ad as *mut _ as *mut core::ffi::c_void,
+        PrivateDriverDataSize: core::mem::size_of::<D3DKMT_ADAPTER_PERFDATA>() as u32,
+    };
+    (D3DKMTQueryAdapterInfo(&mut qai).0 == 0).then_some(ad)
+}
+
 /// Read `(clock_mhz, temp_c)` for the adapter with the given LUID. Either is
 /// `None` when the driver doesn't populate it (returns 0 / a non-success status)
 /// — many integrated GPUs report no separate temperature, which is expected.
@@ -27,44 +59,87 @@ pub fn read_clock_temp(luid: LUID) -> (Option<f32>, Option<f32>) {
         }
         let hadapter = open.hAdapter;
 
-        // Clock: node 0 = the primary 3D/graphics engine on consumer drivers.
-        // NODE_PERFDATA.Frequency is in Hz.
-        let mut clock_mhz = None;
-        let mut perf = D3DKMT_NODE_PERFDATA::default();
-        perf.NodeOrdinal = 0;
-        perf.PhysicalAdapterIndex = 0;
-        let mut qai = D3DKMT_QUERYADAPTERINFO {
-            hAdapter: hadapter,
-            Type: KMTQAITYPE_NODEPERFDATA,
-            pPrivateDriverData: &mut perf as *mut _ as *mut core::ffi::c_void,
-            PrivateDriverDataSize: core::mem::size_of::<D3DKMT_NODE_PERFDATA>() as u32,
-        };
-        // Some(0.0) when the query succeeds but the engine is clock-gated (idle);
-        // None only when the query itself fails (clock genuinely unsupported). This
-        // lets the tile show "—" for an idle clock yet hide the row entirely on a
-        // GPU that reports no clock at all.
-        if D3DKMTQueryAdapterInfo(&mut qai).0 == 0 {
-            clock_mhz = Some(perf.Frequency as f32 / 1_000_000.0);
+        // Clock: the core clock is reported PER engine node, and node 0 is not
+        // always the 3D/graphics engine — on Intel, node 0 reads 0 Hz, which is
+        // what produced the blank "— MHz". Scan the nodes and take the highest live
+        // frequency: under load that's the active 3D engine. Some(0.0) when the
+        // queries work but every engine is idle/clock-gated (tile shows "—"); None
+        // only when no node query succeeds (clock genuinely unsupported → row hidden).
+        let mut any_node = false;
+        let mut best_hz = 0u64;
+        for node in 0..MAX_PERF_NODES {
+            if let Some(perf) = query_node_perf(hadapter, node) {
+                any_node = true;
+                best_hz = best_hz.max(perf.Frequency);
+            }
         }
+        let clock_mhz = if best_hz > 0 {
+            Some(best_hz as f32 / 1_000_000.0)
+        } else if any_node {
+            Some(0.0)
+        } else {
+            None
+        };
 
         // Temperature: ADAPTER_PERFDATA.Temperature is in deci-Celsius (1 = 0.1°C).
-        let mut temp_c = None;
-        let mut ad = D3DKMT_ADAPTER_PERFDATA::default();
-        ad.PhysicalAdapterIndex = 0;
-        let mut qai2 = D3DKMT_QUERYADAPTERINFO {
-            hAdapter: hadapter,
-            Type: KMTQAITYPE_ADAPTERPERFDATA,
-            pPrivateDriverData: &mut ad as *mut _ as *mut core::ffi::c_void,
-            PrivateDriverDataSize: core::mem::size_of::<D3DKMT_ADAPTER_PERFDATA>() as u32,
-        };
-        if D3DKMTQueryAdapterInfo(&mut qai2).0 == 0 && ad.Temperature > 0 {
-            temp_c = Some(ad.Temperature as f32 / 10.0);
-        }
+        let temp_c = query_adapter_perf(hadapter)
+            .filter(|ad| ad.Temperature > 0)
+            .map(|ad| ad.Temperature as f32 / 10.0);
 
         let mut close = D3DKMT_CLOSEADAPTER { hAdapter: hadapter };
         let _ = D3DKMTCloseAdapter(&mut close);
         (clock_mhz, temp_c)
     }
+}
+
+/// Diagnostic dump for `--gpu-debug`: every engine node's live/max frequency plus
+/// the adapter-level perf data, so we can see exactly which node carries the clock
+/// on a given GPU (and whether the driver exposes WDDM perf data at all).
+pub fn debug_dump(luid: LUID) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    unsafe {
+        let mut open = D3DKMT_OPENADAPTERFROMLUID { AdapterLuid: luid, hAdapter: 0 };
+        if D3DKMTOpenAdapterFromLuid(&mut open).0 != 0 {
+            return "  D3DKMT: OpenAdapterFromLuid failed (no WDDM perf data — old driver/OS)\n".into();
+        }
+        let hadapter = open.hAdapter;
+        for node in 0..MAX_PERF_NODES {
+            match query_node_perf(hadapter, node) {
+                Some(p) => {
+                    let _ = writeln!(
+                        s,
+                        "  node {node:>2}: freq={:>6.0} MHz  max={:>6.0} MHz  volt={}",
+                        p.Frequency as f64 / 1e6,
+                        p.MaxFrequency as f64 / 1e6,
+                        p.Voltage
+                    );
+                }
+                None => {
+                    let _ = writeln!(s, "  node {node:>2}: query failed");
+                }
+            }
+        }
+        match query_adapter_perf(hadapter) {
+            Some(a) => {
+                let _ = writeln!(
+                    s,
+                    "  adapter: memclk={:.0} MHz  maxmemclk={:.0} MHz  temp={:.1}C  power={}  fan={} rpm",
+                    a.MemoryFrequency as f64 / 1e6,
+                    a.MaxMemoryFrequency as f64 / 1e6,
+                    a.Temperature as f64 / 10.0,
+                    a.Power,
+                    a.FanRPM
+                );
+            }
+            None => {
+                let _ = writeln!(s, "  adapter perf: query failed");
+            }
+        }
+        let mut close = D3DKMT_CLOSEADAPTER { hAdapter: hadapter };
+        let _ = D3DKMTCloseAdapter(&mut close);
+    }
+    s
 }
 
 /// Holds the previous utilization sample so usage % can be derived from the
