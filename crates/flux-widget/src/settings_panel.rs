@@ -990,7 +990,7 @@ pub fn view<'a>(
     for (slot, name, hex) in swatch_data {
         let c = crate::style::swatch_color(hex);
         let hex_s = hex.to_string();
-        let is_accent = slot == 2;
+        let is_editing = editing_color == Some(slot);
         let short_hex = if hex_s.len() > 4 { format!("#{}", &hex_s[3..]) } else { hex_s.clone() };
         let col: Element<'a, Message> = column![
             crate::style::with_tip(button(Space::new(Length::Fill, 36))
@@ -999,15 +999,15 @@ pub fn view<'a>(
                     background: Some(iced::Background::Color(c)),
                     border: Border {
                         radius: 6.0.into(),
-                        width: if is_accent { 2.0 } else { 1.0 },
-                        color: if is_accent { p.text } else { iced::Color { a: 0.35, ..p.muted } },
+                        width: if is_editing { 2.0 } else { 1.0 },
+                        color: if is_editing { p.text } else { iced::Color { a: 0.35, ..p.muted } },
                     },
                     ..Default::default()
                 })
                 .on_press(Message::EditColor(slot)), &format!("Edit the {name} color"), p),
             text(name.to_string()).size(9)
-                .font(if is_accent { iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT } } else { iced::Font::DEFAULT })
-                .style(move |_| iced::widget::text::Style { color: Some(if is_accent { p.text } else { p.muted }) }),
+                .font(if is_editing { iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT } } else { iced::Font::DEFAULT })
+                .style(move |_| iced::widget::text::Style { color: Some(if is_editing { p.text } else { p.muted }) }),
             text(short_hex).size(9)
                 .style(move |_| iced::widget::text::Style { color: Some(p.muted) }),
         ].spacing(2).align_x(iced::Alignment::Center).width(Length::FillPortion(1)).into();
@@ -1025,17 +1025,21 @@ pub fn view<'a>(
             3 => ("Text", settings.theme_text.clone()),
             _ => ("Muted", settings.theme_muted.clone()),
         };
-        let header = row![
-            text(format!("{lbl} color")).size(11)
-                .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-                .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
-            Space::with_width(Length::Fill),
+        // Larger, centered title naming the colour being edited; Done stays top-right.
+        // The left spacer balances the Done button's width so the title sits centered.
+        let title = row![
+            Space::with_width(Length::Fixed(56.0)),
+            container(
+                text(format!("{lbl}")).size(15)
+                    .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                    .style(move |_| iced::widget::text::Style { color: Some(p.text) })
+            ).width(Length::Fill).center_x(Length::Fill),
             crate::style::with_tip(button(text("Done").size(10).style(move |_| iced::widget::text::Style { color: Some(p.muted) }))
                 .padding([3, 12]).style(move |_,_| button::Style { background: Some(iced::Background::Color(p.tile)), border: Border { radius: 5.0.into(), width: 1.0, color: iced::Color { a: 0.4, ..p.muted } }, ..Default::default() })
                 .on_press(Message::EditColor(slot)), "Close the color picker", p),
         ].align_y(iced::Alignment::Center);
         column![
-            header,
+            title,
             Space::with_height(6),
             crate::color_picker::view(&hex, move |s| Message::SetHexColor(slot, s), p),
         ].spacing(0).into()
