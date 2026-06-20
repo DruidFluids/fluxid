@@ -1517,7 +1517,7 @@ pub fn view<'a>(
             border: Border { radius: iced::border::Radius { top_left: crate::style::win_radius(18.5), top_right: crate::style::win_radius(18.5), bottom_right: 0.0, bottom_left: 0.0 }, ..Border::default() },
             ..Default::default()
         })
-    ).on_press(Message::DragWindow(win_id));
+    ).on_press(Message::DragWindow(win_id)).on_release(Message::WindowDragEnd);
     let caption_hairline = container(Space::new(Length::Fill, Length::Fixed(1.0)))
         .style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(iced::Color { a: 0.30, ..p.accent })), ..Default::default() });
 

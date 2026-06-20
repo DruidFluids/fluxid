@@ -444,15 +444,6 @@ fn dwm_round_hwnd(hwnd: windows::Win32::Foundation::HWND, round: bool) {
         );
     }
 }
-fn set_window_rounded(round: bool) {
-    // DWM rounds the actual OS window at the compositor — a clip that works on
-    // every GPU. iced's own frame stays SQUARE (win_radius -> 0) so the corners
-    // hold no transparent pixels; a transparent corner triangle is composited as
-    // opaque black on hwnd-swapchain GPUs (AMD) instead of showing the desktop.
-    if let Some(hwnd) = widget_hwnd() {
-        dwm_round_hwnd(hwnd, round);
-    }
-}
 // Apply the corner preference to EVERY top-level window owned by this process —
 // the widget plus all dialogs (Settings, Alerts, Game Mode, Utilities, Remote,
 // menus). Without this, only the widget honored the rounded-corners toggle and
@@ -480,6 +471,47 @@ fn set_all_windows_rounded(round: bool) {
     }
     unsafe { let _ = EnumWindows(Some(cb), LPARAM(&mut ctx as *mut _ as isize)); }
 }
+// Hide every top-level window owned by this process *immediately*, before the
+// slow GPU/sensor teardown on exit. A transparent, always-on-top wgpu window
+// otherwise leaves its last frame (a thin border) as a DWM "ghost" on the
+// desktop for the ~second the process takes to tear down. SW_HIDE removes the
+// window at once so DWM repaints the area cleanly — no ghost.
+#[cfg(target_os = "windows")]
+fn hide_all_windows() {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, ShowWindow, SW_HIDE};
+    unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> BOOL {
+        let own = lp.0 as u32;
+        let mut wpid = 0u32;
+        GetWindowThreadProcessId(h, Some(&mut wpid));
+        if wpid == own { let _ = ShowWindow(h, SW_HIDE); }
+        BOOL(1)
+    }
+    unsafe { let pid = GetCurrentProcessId(); let _ = EnumWindows(Some(cb), LPARAM(pid as isize)); }
+}
+#[cfg(not(target_os = "windows"))]
+fn hide_all_windows() {}
+// Current mouse position in iced LOGICAL screen coords (physical cursor / DPI scale),
+// matching the space window positions use. Lets a tear-off re-anchor the new window
+// to the live cursor right before dragging, so the grab point doesn't drift.
+#[cfg(target_os = "windows")]
+fn cursor_logical() -> Option<Point> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    use windows::Win32::UI::HiDpi::GetDpiForWindow;
+    unsafe {
+        let mut pt = POINT::default();
+        GetCursorPos(&mut pt).ok()?;
+        let scale = widget_hwnd().map(|h| GetDpiForWindow(h)).filter(|d| *d != 0).map(|d| d as f32 / 96.0).unwrap_or(1.0);
+        Some(Point::new(pt.x as f32 / scale, pt.y as f32 / scale))
+    }
+}
+#[cfg(not(target_os = "windows"))]
+fn cursor_logical() -> Option<Point> { None }
+// Hide this process's windows, then ask iced to exit — avoids the close-time ghost.
+fn exit_clean() -> Task<Message> { hide_all_windows(); iced::exit() }
 #[cfg(not(target_os = "windows"))]
 fn set_window_rounded(_: bool) {}
 #[cfg(not(target_os = "windows"))]
@@ -710,7 +742,41 @@ struct App {
     remote_snapshots: HashMap<String, SensorSnapshot>,
     remote_conn: HashMap<String, bool>,
     popout_device: HashMap<window::Id, String>,
+    // Live on-screen position of each popout window, tracked from Moved events so
+    // a popout can edge-snap on drag-release exactly like the main widget.
+    popout_pos: HashMap<window::Id, Point>,
+    // Popouts opened via the ↗ button / right-click open ON TOP of the widget, so
+    // they'd instantly dock back. Lock their dock-back until the user actually moves
+    // them ≥1px. Tear-off (drag) popouts are never added here, so drag is unaffected.
+    dock_locked: std::collections::HashSet<window::Id>,
     pending_popout: std::collections::VecDeque<String>,
+    // A device tab pressed for a potential tear-off drag: (device id, first cursor
+    // sample). When the cursor pulls far enough away, the device pops into its own
+    // window. None until armed; the inner sample is None until the first move.
+    tab_drag: Option<(String, Option<Point>)>,
+    // Hovered remote tab id (for hover styling — remote tabs are mouse_area-wrapped
+    // containers now, so they don't get the button's built-in hover state).
+    hovered_tab: Option<String>,
+    // True while an OS window-move drag is in progress. Pauses cosmetic animation
+    // ticks (gear pulse, traffic blink) so their full-window repaints don't flood
+    // the drag's present stream — the choppiness multiplies with each open window.
+    window_dragging: bool,
+    // Set when a tear-off opens a popout: the new window immediately continues the
+    // drag so it follows the cursor in one motion (best-effort — needs the button
+    // still held). Cleared as it's consumed in WindowOpened.
+    pending_popout_drag: bool,
+    // DWM ignores a corner-rounding request if the window isn't composited yet, so
+    // the widget can open square. Re-apply rounding on a tick until this deadline to
+    // win that race (Win11 only; a no-op where DWM rounding isn't available).
+    round_retry_until: Option<Instant>,
+    // Device id of a popout currently dragged over the widget. Its tab is shown as
+    // a ghost placeholder in the strip (where it will dock), like the tile reorder
+    // drop slot. None when no popout is hovering.
+    dock_hover: Option<String>,
+    // A popout that moved recently; once it stops (drag released) we settle it —
+    // dock-back or edge-snap. Timer-based like the widget's pending_snap, because a
+    // popout's on_release doesn't reliably fire after an OS window-drag.
+    pending_popout_settle: Option<(window::Id, Instant)>,
     // ── Global hotkeys ──
     hotkeys: Option<hotkeys::HotkeyManager>,
     hotkey_rx: Option<std::sync::mpsc::Receiver<hotkeys::HotkeyEvent>>,
@@ -870,6 +936,13 @@ enum Message {
     SetNewDeviceName(String), SetNewDeviceIp(String), SetNewDeviceKey(String),
     TestDevice, SaveDevice, RemoveDevice(String),
     OpenPopout(String),
+    SnapPopoutNow(window::Id),
+    ArmTabDrag(String),
+    TabDragMove(Point),
+    EndTabDrag,
+    HoverTab(Option<String>),
+    WindowDragEnd,
+    ReapplyRounding,
     OpenPopoutConfig(String),
     PopoutSyncColors(String, bool), PopoutColor(String, u8, String), PopoutOpacity(String, f32),
     PopoutTile(String, String, bool), PopoutLabel(String, u8, String),
@@ -939,7 +1012,11 @@ impl App {
             _tray: tray, settings_id: sid, show_id: wid, game_id: gid, exit_id: eid,
             remote: Some(remote), remote_rx: Some(remote_rx),
             remote_snapshots: HashMap::new(), remote_conn: HashMap::new(),
-            popout_device: HashMap::new(), pending_popout: std::collections::VecDeque::new(),
+            popout_device: HashMap::new(), popout_pos: HashMap::new(),
+            dock_locked: std::collections::HashSet::new(),
+            pending_popout: std::collections::VecDeque::new(),
+            tab_drag: None, hovered_tab: None, window_dragging: false, pending_popout_drag: false,
+            round_retry_until: None, dock_hover: None, pending_popout_settle: None,
             hotkeys: Some(hotkeys_mgr), hotkey_rx: Some(hotkey_rx), capturing_hotkey: None,
             blocklist_editor: iced::widget::text_editor::Content::with_text(&blocklist_text),
             blocklist_status: String::new(),
@@ -1035,6 +1112,20 @@ impl App {
                     app.remote_conn.insert(id.clone(), true);
                     app.settings.show_remote_status_dot = true;
                     app.widget_device = Some(id);
+                }
+                "remote-popout" => {
+                    // Demo: a remote device popped out into its own window (the widget
+                    // stays on This PC). Captured via the "Flux"-titled popout window.
+                    let id = "demo-server".to_string();
+                    app.settings.remote_devices.push(flux_core::settings::RemoteDevice {
+                        id: id.clone(), name: "Server1".into(), host: "192.0.2.10".into(),
+                        port: 5199, key: "FM1:ExampleKeyOnly".into(), popout: Default::default(),
+                    });
+                    app.remote_snapshots.insert(id.clone(), demo_server_snapshot());
+                    app.remote_conn.insert(id.clone(), true);
+                    app.settings.show_remote_status_dot = true;
+                    app.widget_device = None;
+                    batch.push(Task::done(Message::OpenPopout(id)));
                 }
                 "widget-update" => {
                     // Force the "update available" state so the gear pulses its dot.
@@ -1366,6 +1457,80 @@ impl App {
         // 12 (top+bottom padding) + 18 (title bar) + 4 (gap) + tiles + 10 slack.
         Size::new(tw + 12.0, 12.0 + 18.0 + 4.0 + n * th + (n - 1.0) * sp + 10.0)
     }
+    // Is this device currently torn off into its own popout window? (If so its tab
+    // is hidden from the widget strip — browser-tab model.)
+    fn is_popped_out(&self, dev_id: &str) -> bool {
+        self.popout_device.values().any(|d| d == dev_id)
+    }
+    // Does a popout at (pos, size) overlap the main widget? Used both to highlight
+    // the widget as a dock target during a drag and to re-dock on release.
+    fn popout_over_widget(&self, pos: Point, size: Size) -> bool {
+        if self.widget_window().is_none() || self.game_mode { return false; }
+        let wpos = Point::new(self.settings.window_x as f32, self.settings.window_y as f32);
+        let wsz = self.widget_size();
+        pos.x < wpos.x + wsz.width && pos.x + size.width > wpos.x &&
+        pos.y < wpos.y + wsz.height && pos.y + size.height > wpos.y
+    }
+    // Settle a popout after its drag ends: dock it back into the widget if it was
+    // dropped over it, otherwise edge-snap. Shared by the immediate on_release path
+    // and the reliable timer path (TrayPoll).
+    fn settle_popout(&mut self, id: window::Id) -> Task<Message> {
+        self.window_dragging = false;
+        self.dock_hover = None;
+        // Safety lock: a freshly ↗/right-click-opened popout (not yet moved) lands on
+        // the widget — don't dock or snap it from an incidental click. It settles only
+        // after a real ≥1px move (which clears the lock in WindowMoved). Not timer-based.
+        if self.dock_locked.contains(&id) { return Task::none(); }
+        let pos = match self.popout_pos.get(&id).copied() { Some(p) => p, None => return Task::none() };
+        let size = self.popout_window_size(id);
+        // Drag-back-to-dock: dropped over the widget → re-dock (its tab reappears via
+        // is_popped_out) and select it.
+        if self.popout_over_widget(pos, size) {
+            if let Some(dev_id) = self.popout_device.get(&id).cloned() { self.widget_device = Some(dev_id); }
+            return window::close(id);
+        }
+        if !self.settings.snap_to_edges { return Task::none(); }
+        if let Some((snapped, _, _)) = self.snap_with_edges(pos, size) {
+            self.popout_pos.insert(id, snapped);
+            return window::move_to(id, snapped);
+        }
+        Task::none()
+    }
+    // Size of an already-open popout window, by its device's tile subset.
+    fn popout_window_size(&self, id: window::Id) -> Size {
+        self.popout_device.get(&id)
+            .and_then(|did| self.settings.remote_devices.iter().find(|d| &d.id == did))
+            .map(|d| self.popout_size(&d.popout))
+            .unwrap_or(Size::new(140.0, 140.0))
+    }
+    // Open a remote device's popout window. `at` (screen coords) places it there —
+    // used by tear-off so the window appears under the cursor; None uses the saved
+    // / default popup slot. The window is centered horizontally on `at`.
+    fn open_popout(&mut self, dev_id: &str, at: Option<Point>) -> Task<Message> {
+        // Browser-tab model: a device lives EITHER as a tab or as its own window.
+        // Don't open a second window for an already-popped-out device.
+        if self.is_popped_out(dev_id) { return Task::none(); }
+        let dev = match self.settings.remote_devices.iter().find(|d| d.id == dev_id).cloned() {
+            Some(d) => d,
+            None => return Task::none(),
+        };
+        // The tab is about to vanish from the strip — if the widget was showing this
+        // device, fall back to This PC so it isn't left on a tab that no longer exists.
+        if self.widget_device.as_deref() == Some(dev_id) { self.widget_device = None; }
+        self.pending_popout.push_back(dev.id.clone());
+        // A positioned open == a tear-off: continue the drag once the window exists.
+        self.pending_popout_drag = at.is_some();
+        let size = self.popout_size(&dev.popout);
+        let position = match at {
+            Some(p) => window::Position::Specific(Point::new(p.x - size.width / 2.0, (p.y - 10.0).max(0.0))),
+            None => self.popup_position(WindowKind::Popout),
+        };
+        let (_, t) = window::open(window::Settings {
+            size, position, decorations: false, transparent: true,
+            resizable: false, level: window::Level::AlwaysOnTop, platform_specific: no_taskbar(), ..Default::default()
+        });
+        t.map(|wid| Message::WindowOpened(wid, WindowKind::Popout))
+    }
 
     fn eval_warnings(&mut self) {
         self.warn_state.clear();
@@ -1421,9 +1586,8 @@ impl App {
     }
     // Returns the snapped position plus which edges it locked to (right/bottom),
     // so resizes can keep the snapped corner anchored.
-    fn snap_with_edges(&self, pos: Point) -> Option<(Point, bool, bool)> {
+    fn snap_with_edges(&self, pos: Point, sz: Size) -> Option<(Point, bool, bool)> {
         let (l, t, r, b) = work_area()?;
-        let sz = self.widget_size();
         let m = self.settings.snap_distance.max(0.0);
 
         // Gather EVERY snap candidate per axis — monitor edges and (if enabled)
@@ -1608,7 +1772,7 @@ impl App {
             Message::TrayPoll => {
                 let mut tasks: Vec<Task<Message>> = Vec::new();
                 if let Ok(event) = MenuEvent::receiver().try_recv() {
-                    if event.id == self.exit_id { return iced::exit(); }
+                    if event.id == self.exit_id { return exit_clean(); }
                     if event.id == self.settings_id { tasks.push(self.open_settings()); }
                     if event.id == self.show_id { if let Some(id) = self.widget_window() { tasks.push(window::change_mode(id, window::Mode::Windowed)); } }
                     if event.id == self.game_id {
@@ -1619,7 +1783,7 @@ impl App {
                 if let Some((id, pos, when)) = self.pending_snap {
                     if when.elapsed() > Duration::from_millis(150) {
                         self.pending_snap = None;
-                        match self.snap_with_edges(pos) {
+                        match self.snap_with_edges(pos, self.widget_size()) {
                             Some((snapped, sr, sb)) => {
                                 self.snap_right = sr; self.snap_bottom = sb;
                                 self.ignore_next_move = true;
@@ -1630,16 +1794,40 @@ impl App {
                         }
                     }
                 }
+                // Settle a popout once it stops moving (drag released) — the reliable
+                // path when its on_release doesn't fire after an OS window-drag.
+                if let Some((pid, when)) = self.pending_popout_settle {
+                    if when.elapsed() > Duration::from_millis(160) {
+                        self.pending_popout_settle = None;
+                        tasks.push(self.settle_popout(pid));
+                    }
+                }
                 if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
             }
-            Message::DragWindow(id) => window::drag(id),
+            Message::DragWindow(id) => { self.window_dragging = true; window::drag(id) }
+            Message::WindowDragEnd => {
+                self.window_dragging = false;
+                // Global mouse-up: settle a dragged popout IMMEDIATELY (dock-back or
+                // snap). This fires regardless of which window the cursor is over, so
+                // it's the snappy, reliable path — unlike the popout's own on_release.
+                if let Some((pid, _)) = self.pending_popout_settle.take() {
+                    return self.settle_popout(pid);
+                }
+                Task::none()
+            }
+            Message::ReapplyRounding => {
+                set_all_windows_rounded(self.settings.round_corners);
+                if self.round_retry_until.map_or(true, |t| Instant::now() >= t) { self.round_retry_until = None; }
+                Task::none()
+            }
             // Snap immediately when the mouse is released after dragging.
             Message::SnapWidgetNow => {
+                self.window_dragging = false;
                 self.pending_snap = None;
                 if self.game_mode || !self.settings.snap_to_edges { return Task::none(); }
                 if let Some(id) = self.widget_window() {
                     let cur = Point::new(self.settings.window_x as f32, self.settings.window_y as f32);
-                    match self.snap_with_edges(cur) {
+                    match self.snap_with_edges(cur, self.widget_size()) {
                         Some((snapped, sr, sb)) => {
                             self.snap_right = sr; self.snap_bottom = sb;
                             self.ignore_next_move = true;
@@ -1657,14 +1845,39 @@ impl App {
                 self.windows.insert(id, kind);
                 if kind == WindowKind::Popout {
                     if let Some(dev) = self.pending_popout.pop_front() { self.popout_device.insert(id, dev); }
-                    return self.update_widget_level();
+                    // Round the popout's OS corners to match the widget (+retry to win
+                    // the same compositor race the widget hits).
+                    set_all_windows_rounded(self.settings.round_corners);
+                    self.round_retry_until = Some(Instant::now() + Duration::from_millis(1200));
+                    let lvl = self.update_widget_level();
+                    if std::mem::take(&mut self.pending_popout_drag) {
+                        // Tear-off: re-anchor the new window to the LIVE cursor (it moved
+                        // since tear-off was detected), placing the cursor on the title
+                        // bar, THEN drag — so the grab point stays under the cursor
+                        // instead of drifting to the edge.
+                        self.window_dragging = true;
+                        let size = self.popout_window_size(id);
+                        if let Some(c) = cursor_logical() {
+                            let pos = Point::new(c.x - size.width / 2.0, (c.y - 9.0).max(0.0));
+                            self.popout_pos.insert(id, pos);
+                            return Task::batch([lvl, window::move_to(id, pos), window::drag(id)]);
+                        }
+                        return Task::batch([lvl, window::drag(id)]);
+                    }
+                    // Opened via ↗ button / right-click (not a drag): it lands on top of
+                    // the widget, so lock dock-back until the user moves it ≥1px.
+                    self.dock_locked.insert(id);
+                    return lvl;
                 }
                 if kind == WindowKind::Widget {
                     // Give the widget a unique OS window title (FindWindow target
                     // for snap + click-through), then apply click-through +
-                    // rounded-corner state.
+                    // rounded-corner state. DWM may ignore the corner request until
+                    // the window is composited, so also re-apply on a tick for ~1.2s
+                    // (set_all_windows_rounded is PID-based — robust vs. title races).
                     rename_widget_window();
-                    set_window_rounded(self.settings.round_corners);
+                    set_all_windows_rounded(self.settings.round_corners);
+                    self.round_retry_until = Some(Instant::now() + Duration::from_millis(1200));
                     return self.apply_click_through();
                 }
                 // A settings/popup opened: blip its title-bar brand, round its OS
@@ -1691,6 +1904,28 @@ impl App {
                         self.settings.settings_window_x = Some(pos.x as f64);
                         self.settings.settings_window_y = Some(pos.y as f64);
                     }
+                    Some(&WindowKind::Popout) => {
+                        // Track the live position so the popout can edge-snap on release.
+                        self.popout_pos.insert(id, pos);
+                        // Only a USER drag (window_dragging) clears the ↗/right-click
+                        // safety lock. The initial open-positioning Moved that winit
+                        // emits fires with window_dragging=false, so it's ignored — the
+                        // popout stays put until you actually grab and move it ≥1px.
+                        if self.window_dragging { self.dock_locked.remove(&id); }
+                        if !self.dock_locked.contains(&id) {
+                            // Arm a settle (dock-or-snap when movement stops) and show the
+                            // ghost dock-slot while the popout is over the widget.
+                            self.pending_popout_settle = Some((id, Instant::now()));
+                            self.dock_hover = if self.popout_over_widget(pos, self.popout_window_size(id)) {
+                                self.popout_device.get(&id).cloned()
+                            } else {
+                                None
+                            };
+                        }
+                        if let Some(key) = kind_key(WindowKind::Popout) {
+                            self.settings.popup_positions.insert(key.to_string(), (pos.x as f64, pos.y as f64));
+                        }
+                    }
                     Some(&k) => {
                         if let Some(key) = kind_key(k) {
                             self.settings.popup_positions.insert(key.to_string(), (pos.x as f64, pos.y as f64));
@@ -1703,8 +1938,11 @@ impl App {
             Message::WindowClosed(id) => {
                 let was = self.windows.remove(&id);
                 self.popout_device.remove(&id);
+                self.popout_pos.remove(&id);
+                self.dock_locked.remove(&id);
+                self.dock_hover = None;
                 let _ = self.settings.save();
-                if self.widget_window().is_none() { return iced::exit(); }
+                if self.widget_window().is_none() { return exit_clean(); }
                 let level = self.update_widget_level();
                 // Closing the Settings window dismisses every auxiliary window it
                 // spawned (menus, pickers, selectors, help, alerts, etc.). The main
@@ -1998,7 +2236,7 @@ impl App {
                 t.map(|id| Message::WindowOpened(id, WindowKind::WidgetMenu))
             }
             Message::WidgetMenuSettings => Task::batch([self.close_kind(WindowKind::WidgetMenu), self.open_settings()]),
-            Message::WidgetMenuExit => iced::exit(),
+            Message::WidgetMenuExit => exit_clean(),
             Message::WindowUnfocused(id) => {
                 // Dismiss the context menu when it loses focus (click elsewhere).
                 if self.windows.get(&id) == Some(&WindowKind::WidgetMenu) {
@@ -2229,20 +2467,40 @@ impl App {
                 if let Some(r) = &self.remote { r.set_devices(self.settings.remote_devices.clone()); }
                 Task::none()
             }
-            Message::OpenPopout(id) => {
-                let dev = self.settings.remote_devices.iter().find(|d| d.id == id).cloned();
-                match dev {
-                    Some(dev) => {
-                        self.pending_popout.push_back(dev.id.clone());
-                        let size = self.popout_size(&dev.popout);
-                        let (_, t) = window::open(window::Settings {
-                            size, position: self.popup_position(WindowKind::Popout), decorations: false, transparent: true,
-                            resizable: false, level: window::Level::AlwaysOnTop, platform_specific: no_taskbar(), ..Default::default()
-                        });
-                        t.map(|wid| Message::WindowOpened(wid, WindowKind::Popout))
+            Message::OpenPopout(id) => self.open_popout(&id, None),
+            Message::SnapPopoutNow(id) => {
+                self.pending_popout_settle = None;
+                self.settle_popout(id)
+            }
+            Message::ArmTabDrag(id) => { self.tab_drag = Some((id, None)); Task::none() }
+            Message::EndTabDrag => {
+                // Released without a tear-off = a click → switch the widget to that
+                // device (drag far enough and TabDragMove clears tab_drag instead).
+                if let Some((id, _)) = self.tab_drag.take() { self.widget_device = Some(id); }
+                Task::none()
+            }
+            Message::HoverTab(id) => { self.hovered_tab = id; Task::none() }
+            Message::TabDragMove(pos) => {
+                if let Some((dev_id, origin)) = self.tab_drag.clone() {
+                    match origin {
+                        // First sample becomes the drag origin.
+                        None => self.tab_drag = Some((dev_id, Some(pos))),
+                        Some(o) => {
+                            let (dx, dy) = (pos.x - o.x, pos.y - o.y);
+                            if (dx * dx + dy * dy).sqrt() > 30.0 {
+                                // Pulled far enough — tear the device off into its own
+                                // window under the cursor (widget-relative → screen).
+                                self.tab_drag = None;
+                                let screen = Point::new(
+                                    self.settings.window_x as f32 + pos.x,
+                                    self.settings.window_y as f32 + pos.y,
+                                );
+                                return self.open_popout(&dev_id, Some(screen));
+                            }
+                        }
                     }
-                    None => Task::none(),
                 }
+                Task::none()
             }
             Message::OpenPopoutConfig(id) => {
                 self.config_device = Some(id);
@@ -2572,7 +2830,7 @@ impl App {
                     self.update_status_kind = 2;
                     return Task::none();
                 }
-                iced::exit()
+                exit_clean()
             }
             Message::ToggleUpdateReset(b) => { self.update_reset_checked = b; Task::none() }
             Message::FinishUpdateNotice(id) => {
@@ -2925,7 +3183,10 @@ impl App {
                 border: Border { radius: style::win_radius(12.0).into(), width: skin.widget_border, color: widget_border },
                 ..Default::default()
             });
-        mouse_area(root).on_press(Message::DragWindow(id)).into()
+        mouse_area(root)
+            .on_press(Message::DragWindow(id))
+            .on_release(Message::SnapPopoutNow(id))
+            .into()
     }
 
     // The device switcher strip: "This PC" + one tab per remote device, each
@@ -2962,12 +3223,90 @@ impl App {
             make_tab("This PC".into(), active_id.is_none(), None, Message::SwitchWidgetDevice(None)),
             "Show this PC's sensors", p));
         for d in &self.settings.remote_devices {
+            // Popped-out devices live in their own window — hide their tab here.
+            if self.is_popped_out(&d.id) {
+                // ...unless its popout is being dragged over the widget: preview where
+                // the tab will dock with a ghost slot (like the tile-reorder drop slot).
+                if self.dock_hover.as_deref() == Some(d.id.as_str()) {
+                    strip = strip.push(
+                        container(
+                            text(truncate(&d.name, 12)).size(10)
+                                .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                                .style(move |_| iced::widget::text::Style { color: Some(Color { a: 0.8, ..p.accent }) })
+                        )
+                        .padding(iced::Padding { top: 2.0, right: 8.0, bottom: 2.0, left: 8.0 })
+                        .style(move |_| iced::widget::container::Style {
+                            background: Some(iced::Background::Color(Color { a: 0.15, ..p.accent })),
+                            border: Border { radius: 5.0.into(), width: 1.5, color: Color { a: 0.9, ..p.accent } },
+                            ..Default::default()
+                        })
+                    );
+                }
+                continue;
+            }
+            // Every remote tab is a draggable container (not a button) so its
+            // mouse_area receives the press — an inner button would swallow it and
+            // kill the drag. Click switches to it, drag tears it off into its own
+            // window, right-click pops it out. The visible ↗ button only shows on the
+            // ACTIVE tab so the strip stays clean. Works regardless of which tab is
+            // selected — you can pull "Server" out while "This PC" is showing.
             let connected = self.remote_conn.get(&d.id).copied().unwrap_or(false);
             let active = active_id == Some(&d.id);
-            let tip = format!("{} \u{2014} {}", d.name, if connected { "connected" } else { "disconnected" });
-            strip = strip.push(style::with_tip(
-                make_tab(truncate(&d.name, 12), active, Some(connected), Message::SwitchWidgetDevice(Some(d.id.clone()))),
-                &tip, p));
+            let hovered = self.hovered_tab.as_deref() == Some(d.id.as_str());
+            let did = d.id.clone();
+            let txt_color = if active { Color::WHITE } else { p.muted };
+            let mut tab_content = row![].spacing(4).align_y(iced::Alignment::Center);
+            if show_dot {
+                let c = if connected { Color::from_rgb(0.30, 0.78, 0.45) } else { Color::from_rgb(0.86, 0.30, 0.25) };
+                tab_content = tab_content.push(status_dot(c));
+            }
+            tab_content = tab_content.push(
+                text(truncate(&d.name, 12)).size(10)
+                    .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
+                    .style(move |_| iced::widget::text::Style { color: Some(txt_color) })
+            );
+            let bg = if active { p.accent } else if hovered { p.tile } else { Color { a: p.tile.a * 0.5, ..p.tile } };
+            let tab_box = container(tab_content)
+                .padding(iced::Padding { top: 2.0, right: 8.0, bottom: 2.0, left: 8.0 })
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: Some(txt_color),
+                    border: Border { radius: 5.0.into(), ..Border::default() },
+                    ..Default::default()
+                });
+            // The tab BODY is the draggable/clickable area (mouse_area). The ↗ detach
+            // button is a SIBLING, not a child — so clicking it pops the device out
+            // cleanly, without the mouse_area also arming a tab-drag and switching the
+            // device back in on release.
+            let armed = mouse_area(tab_box)
+                .on_press(Message::ArmTabDrag(did.clone()))
+                .on_release(Message::EndTabDrag)
+                .on_right_press(Message::OpenPopout(did.clone()))
+                .on_enter(Message::HoverTab(Some(did.clone())))
+                .on_exit(Message::HoverTab(None));
+            let tip = format!("{} \u{2014} {} \u{00B7} click to view, drag to pop out, right-click for its own window",
+                d.name, if connected { "connected" } else { "disconnected" });
+            let tab_el = style::with_tip(armed, &tip, p);
+            if active {
+                let detach = button(
+                        text("\u{2197}").size(11).font(iced::Font::with_name("Segoe UI Symbol"))
+                            .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
+                    )
+                    .padding(iced::Padding { top: 2.0, right: 4.0, bottom: 2.0, left: 4.0 })
+                    .style(move |_: &iced::Theme, status: button::Status| {
+                        let hover = matches!(status, button::Status::Hovered);
+                        button::Style {
+                            background: Some(iced::Background::Color(if hover { p.tile } else { Color { a: p.tile.a * 0.5, ..p.tile } })),
+                            text_color: if hover { p.text } else { p.muted },
+                            border: Border { radius: 5.0.into(), ..Border::default() },
+                            ..Default::default()
+                        }
+                    })
+                    .on_press(Message::OpenPopout(did.clone()));
+                strip = strip.push(row![tab_el, style::with_tip(detach, "Pop out to its own window", p)].spacing(2).align_y(iced::Alignment::Center));
+            } else {
+                strip = strip.push(tab_el);
+            }
         }
         container(strip).width(Length::Fill).center_x(Length::Fill).into()
     }
@@ -3113,7 +3452,7 @@ impl App {
             iced::Shadow::default()
         };
         // Tighter top inset so the gear/X bar hugs the top edge (less empty
-        // space). The OS window corners are rounded by DWM (set_window_rounded);
+        // space). The OS window corners are rounded by DWM (set_all_windows_rounded);
         // the iced frame stays SQUARE (win_radius -> 0) so no transparent corner
         // triangle is left for hwnd-swapchain GPUs (AMD) to composite as black.
         let corner_radius = style::win_radius(skin.widget_radius);
@@ -3163,7 +3502,7 @@ impl App {
         // Paused during a tile drag/settle for the same reason as the gear pulse
         // below: a 60ms full-window repaint floods the drag's present stream.
         if matches!(self.settings.network_traffic_indicator.as_str(), "Blink" | "Fade")
-            && self.tile_drag.is_none() && self.tile_slots.is_empty()
+            && self.tile_drag.is_none() && self.tile_slots.is_empty() && !self.window_dragging
         {
             subs.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::AnimTick));
         }
@@ -3176,6 +3515,11 @@ impl App {
         if self.last_window_open.map(|t| t.elapsed() < Duration::from_millis(550)).unwrap_or(false) {
             subs.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::BrandBlipTick));
         }
+        // Re-apply DWM corner rounding for ~1.2s after the widget opens, to win the
+        // race where DWM ignores the request before the window is composited.
+        if self.round_retry_until.map_or(false, |t| Instant::now() < t) {
+            subs.push(iced::time::every(Duration::from_millis(120)).map(|_| Message::ReapplyRounding));
+        }
         // Smoothly animate the gear-core pulse while an update is available
         // (BrandBlipTick is a no-op redraw — it just re-renders the frame).
         // BUT NOT during a tile drag/settle: this fires a full repaint of every
@@ -3184,7 +3528,7 @@ impl App {
         // updates now linger (Auto notifies instead of auto-installing), this pulse
         // would otherwise run the whole time an update is pending. Pause it for the
         // ~second of the drag — the gear resumes pulsing the moment it ends.
-        if self.update_available.is_some() && self.tile_drag.is_none() && self.tile_slots.is_empty() {
+        if self.update_available.is_some() && self.tile_drag.is_none() && self.tile_slots.is_empty() && !self.window_dragging {
             subs.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::BrandBlipTick));
         }
         // While a hotkey field is armed, capture the next key combo.
@@ -3223,6 +3567,23 @@ impl App {
                 iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
                     Some(Message::TileDragEnd)
                 }
+                _ => None,
+            }));
+        }
+        // Tear-off: while a device tab is held, follow the cursor (to detect a pull
+        // away from the strip) and disarm on release. Torn down between gestures.
+        if self.tab_drag.is_some() {
+            subs.push(iced::event::listen_with(|event, _status, _id| match event {
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::TabDragMove(position)),
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::EndTabDrag),
+                _ => None,
+            }));
+        }
+        // Clear the window-drag flag on mouse-up so paused animations resume. Covers
+        // dialogs/settings whose title-bar drag has no snap-on-release of its own.
+        if self.window_dragging {
+            subs.push(iced::event::listen_with(|event, _status, _id| match event {
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::WindowDragEnd),
                 _ => None,
             }));
         }

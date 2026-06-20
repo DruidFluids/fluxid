@@ -40,7 +40,7 @@ fn caption<'a>(_title: &str, win_id: window::Id, p: Palette, leading: Option<Ele
             border: Border { radius: iced::border::Radius { top_left: crate::style::win_radius(14.5), top_right: crate::style::win_radius(14.5), bottom_right: 0.0, bottom_left: 0.0 }, ..Border::default() },
             ..Default::default()
         })
-    ).on_press(Message::DragWindow(win_id)).into()
+    ).on_press(Message::DragWindow(win_id)).on_release(Message::WindowDragEnd).into()
 }
 
 fn section_header<'a>(label: &str, p: Palette) -> Element<'a, Message> {
