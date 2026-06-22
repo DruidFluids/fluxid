@@ -77,6 +77,44 @@ fn main() -> iced::Result {
             firewall::apply_rule_elevated(port);
             std::process::exit(0);
         }
+
+        // Single-instance guard. A second widget instance is poison: only ONE
+        // process wins RegisterHotKey for a given combo (the rest fail silently),
+        // and the click-through / snap code finds the widget by its global window
+        // title — so with two instances running, the Game-Mode / click-through
+        // hotkey toggles the *other* (often hidden) widget and the visible one
+        // never reacts, which reads as "game mode is broken". Hold a named per-
+        // session mutex; if one already exists, another widget owns the hotkeys +
+        // tray, so this launch bows out. The `--sensor-service` / setup / firewall
+        // / gpu-debug entry points all exited above, so they never reach here.
+        // `--shot` (dev-only screenshot QA) is exempt so captures can run alongside
+        // a live instance.
+        if !args.iter().any(|a| a == "--shot") {
+            use windows::core::w;
+            use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+            use windows::Win32::System::Threading::CreateMutexW;
+            unsafe {
+                let handle = CreateMutexW(None, true, w!("Local\\FluxWidget.SingleInstance"));
+                let already = GetLastError() == ERROR_ALREADY_EXISTS;
+                match handle {
+                    Ok(h) => {
+                        if already {
+                            // Another widget is already running — let it keep the
+                            // hotkeys and tray icon; quit so we don't fight over them.
+                            std::process::exit(0);
+                        }
+                        // `HANDLE` is a Copy newtype with no Drop, so the OS mutex
+                        // handle is never closed by Rust — it stays held for the whole
+                        // process lifetime (the kernel releases it on exit). That's
+                        // exactly what we want, so just keep the value around.
+                        let _ = h;
+                    }
+                    // Couldn't create the mutex at all — proceed unguarded rather
+                    // than refuse to start.
+                    Err(_) => {}
+                }
+            }
+        }
     }
 
     // Cross-platform GPU diagnostic (hidden `--gpu-debug`): dump the selected
@@ -405,11 +443,13 @@ fn widget_hwnd() -> Option<windows::Win32::Foundation::HWND> {
     None
 }
 
-// Toggle WS_EX_TRANSPARENT (click-through) + WS_EX_LAYERED on the widget window.
+// Toggle WS_EX_TRANSPARENT (click-through) on the widget window. WS_EX_LAYERED is
+// left alone here — it's owned by `set_widget_window_alpha` (opacity), which must
+// stay set for the layered alpha to hold even when click-through is off.
 #[cfg(target_os = "windows")]
 fn set_click_through(_title: &str, on: bool) {
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT,
     };
     let hwnd = match widget_hwnd() {
         Some(h) => h,
@@ -417,13 +457,40 @@ fn set_click_through(_title: &str, on: bool) {
     };
     unsafe {
         let mut ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let flags = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0) as isize;
-        if on { ex |= flags; } else { ex &= !flags; }
+        let flag = WS_EX_TRANSPARENT.0 as isize;
+        if on { ex |= flag; } else { ex &= !flag; }
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
     }
 }
 #[cfg(not(target_os = "windows"))]
 fn set_click_through(_: &str, _: bool) {}
+
+// Set the widget's translucency at the WINDOW level via WS_EX_LAYERED +
+// SetLayeredWindowAttributes(LWA_ALPHA). This is the only opacity that actually
+// composites the desktop through the widget on hwnd-swapchain GPUs (AMD), where
+// per-pixel surface alpha baked into the iced colours is ignored and the window
+// stays opaque. `alpha` is 0 (invisible) .. 255 (opaque).
+#[cfg(target_os = "windows")]
+fn set_widget_window_alpha(alpha: u8) {
+    use windows::Win32::Foundation::COLORREF;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetLayeredWindowAttributes, GWL_EXSTYLE,
+        LWA_ALPHA, WS_EX_LAYERED,
+    };
+    let hwnd = match widget_hwnd() {
+        Some(h) => h,
+        None => return,
+    };
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if ex & WS_EX_LAYERED.0 as isize == 0 {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as isize);
+        }
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
+    }
+}
+#[cfg(not(target_os = "windows"))]
+fn set_widget_window_alpha(_: u8) {}
 
 // Round (or square) the widget window's corners via DWM (Windows 11+). iced's
 // container border-radius doesn't render on the transparent root window's top
@@ -888,6 +955,8 @@ enum Message {
     SetTileWidth(f32), SetTileHeight(f32),
     SetPrimaryFontOffset(f32), SetSecondaryFontOffset(f32), SetIndicatorFontOffset(f32),
     SetMutedContrast(f32), SetInterval(f32),
+    SetNetworkBits(bool), SetTileSpacingOffset(f32),
+    SetStartMinimized(bool), SetLockPosition(bool), ResetWidgetPosition,
     SetCpuName(String), SetGpuName(String),
     SetDisk(String), SetAdapter(String),
     SetAlwaysOnTop(bool), SetRunAtStartup(bool),
@@ -1006,7 +1075,7 @@ impl App {
         let mut app = Self {
             settings, snapshot: SensorSnapshot::default(), poller: None,
             windows: BTreeMap::new(), warn_state: HashMap::new(),
-            flash_on: false, anim_t: 0.0, font_list: fonts::system_fonts(), appearance_undo: Vec::new(), editing_color: None, editing_warn_color: None, settings_tab: 0, game_mode: false,
+            flash_on: false, anim_t: 0.0, font_list: fonts::system_fonts(), appearance_undo: Vec::new(), editing_color: None, editing_warn_color: None, settings_tab: settings_panel::TAB_APPEARANCE, game_mode: false,
             click_through_applied: false,
             pending_snap: None, ignore_next_move: false, snap_right: false, snap_bottom: false,
             _tray: tray, settings_id: sid, show_id: wid, game_id: gid, exit_id: eid,
@@ -1137,7 +1206,7 @@ impl App {
                 }
                 "color-picker" => {
                     // Settings → Appearance with the Accent swatch's colour picker open.
-                    app.settings_tab = 1;
+                    app.settings_tab = settings_panel::TAB_APPEARANCE;
                     app.editing_color = Some(2);
                     batch.push(Task::done(Message::OpenSettings));
                 }
@@ -1152,19 +1221,21 @@ impl App {
                 }
                 // Settings tab / dialog shots (capture the "Flux" window):
                 other => {
+                    use settings_panel::{TAB_APPEARANCE, TAB_BEHAVIOR, TAB_TILES, TAB_TOOLS};
                     let (tab, msg): (usize, Option<Message>) = match other {
-                        "tiles"      => (0, Some(Message::OpenSettings)),
-                        "appearance" => (1, Some(Message::OpenSettings)),
-                        "tools"      => (2, Some(Message::OpenSettings)),
-                        "alerts"     => (2, Some(Message::OpenAlerts)),
-                        "game"       => (2, Some(Message::OpenGameMode)),
-                        "utilities"  => (2, Some(Message::OpenUtilities)),
-                        "remote"     => (2, Some(Message::OpenRemote)),
-                        "help"       => (0, Some(Message::OpenHelp)),
-                        "cpu"        => (0, Some(Message::OpenCpuDriver)),
-                        "themes"     => (1, Some(Message::OpenThemeStore)),
-                        "skins"      => (1, Some(Message::OpenSkinPicker)),
-                        _ => (0, None),
+                        "tiles"      => (TAB_TILES, Some(Message::OpenSettings)),
+                        "appearance" => (TAB_APPEARANCE, Some(Message::OpenSettings)),
+                        "behavior"   => (TAB_BEHAVIOR, Some(Message::OpenSettings)),
+                        "tools"      => (TAB_TOOLS, Some(Message::OpenSettings)),
+                        "alerts"     => (TAB_TOOLS, Some(Message::OpenAlerts)),
+                        "game"       => (TAB_TOOLS, Some(Message::OpenGameMode)),
+                        "utilities"  => (TAB_TOOLS, Some(Message::OpenUtilities)),
+                        "remote"     => (TAB_TOOLS, Some(Message::OpenRemote)),
+                        "help"       => (TAB_TILES, Some(Message::OpenHelp)),
+                        "cpu"        => (TAB_TILES, Some(Message::OpenCpuDriver)),
+                        "themes"     => (TAB_APPEARANCE, Some(Message::OpenThemeStore)),
+                        "skins"      => (TAB_APPEARANCE, Some(Message::OpenSkinPicker)),
+                        _ => (TAB_APPEARANCE, None),
                     };
                     app.settings_tab = tab;
                     if let Some(m) = msg { batch.push(Task::done(m)); }
@@ -1179,7 +1250,16 @@ impl App {
     // centred in the settings panel, so switching tabs or expanding a tile never
     // resizes the window and the leftover space is split evenly top/bottom.
     fn settings_size(&self) -> Size {
-        Size::new(SETTINGS_WIDTH, 846.0)
+        // Tall enough that the densest tab (Appearance: colors + size + opacity +
+        // fonts) fits without a scrollbar.
+        Size::new(SETTINGS_WIDTH, 884.0)
+    }
+
+    // The tile gap on the widget: the active skin's spacing plus the user's nudge
+    // (settings → Tiles → Display), floored at 0. Used by both widget_size and the
+    // tile layout so they always agree (a mismatch would clip the bottom tile).
+    fn effective_tile_spacing(&self) -> f32 {
+        (style::skin_style(&self.settings.active_skin).tile_spacing + self.settings.tile_spacing_offset).max(0.0)
     }
 
     fn effective_orientation(&self) -> Orientation {
@@ -1248,16 +1328,20 @@ impl App {
         let sc = self.settings.ui_scale;
         let tw = self.settings.tile_width * sc;
         let th = self.settings.tile_height * sc;
-        let sp = style::skin_style(&self.settings.active_skin).tile_spacing;
+        let sp = self.effective_tile_spacing();
         // The device switcher tabs add a row above the tiles (only when a remote
         // device exists and we're not in the compact game-mode overlay).
         let tabs_h = if self.show_device_tabs() { 24.0 } else { 0.0 };
+        // The Game Mode badge adds its own row below the header (icon 11 + 2 inner
+        // pad + 2 outer pad = 15; the hotkey text is pinned to line-height 1.0 so it
+        // doesn't exceed the icon). Count it so the bottom tile isn't clipped.
+        let badge_h = if self.game_mode { 15.0 } else { 0.0 };
         // Top padding (4) + header bar (16) + gap (2) + bottom padding (8). Keep
-        // in sync with the root container padding, the `header` row height, and
-        // the Space before `body` in view().
+        // in sync with the root container padding, the `header` row height, the
+        // optional Game Mode badge row, and the Space before `body` in view().
         match self.effective_orientation() {
-            Orientation::Horizontal => Size::new(16.0 + n * tw + (n - 1.0) * sp, 4.0 + 16.0 + 2.0 + tabs_h + th + 8.0),
-            Orientation::Vertical => Size::new(tw + 16.0, 4.0 + 16.0 + 2.0 + tabs_h + n * th + (n - 1.0) * sp + 8.0),
+            Orientation::Horizontal => Size::new(16.0 + n * tw + (n - 1.0) * sp, 4.0 + 16.0 + badge_h + 2.0 + tabs_h + th + 8.0),
+            Orientation::Vertical => Size::new(tw + 16.0, 4.0 + 16.0 + badge_h + 2.0 + tabs_h + n * th + (n - 1.0) * sp + 8.0),
         }
     }
     // The device switcher shows only when at least one remote device exists and
@@ -1374,6 +1458,7 @@ impl App {
             }
         }
         tasks.push(self.apply_click_through());
+        tasks.push(self.apply_widget_opacity());
         Task::batch(tasks)
     }
     fn drain_hotkey_events(&mut self) -> Task<Message> {
@@ -1752,6 +1837,21 @@ impl App {
         Task::none()
     }
 
+    // Effective widget translucency: Game Mode has its own opacity, otherwise the
+    // normal widget opacity.
+    fn effective_widget_opacity(&self) -> f32 {
+        let op = if self.game_mode { self.settings.game_mode_opacity } else { self.settings.widget_opacity };
+        op.clamp(0.2, 1.0)
+    }
+
+    // Push the current opacity to the widget window as a real window-level alpha.
+    // (Baking alpha into the iced colours doesn't composite see-through on AMD.)
+    fn apply_widget_opacity(&self) -> Task<Message> {
+        let alpha = (self.effective_widget_opacity() * 255.0).round() as u8;
+        set_widget_window_alpha(alpha);
+        Task::none()
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Noop => Task::none(),
@@ -1804,7 +1904,13 @@ impl App {
                 }
                 if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
             }
-            Message::DragWindow(id) => { self.window_dragging = true; window::drag(id) }
+            Message::DragWindow(id) => {
+                // "Lock position" disables dragging the widget (popouts are unaffected).
+                if self.settings.lock_position && self.windows.get(&id) == Some(&WindowKind::Widget) {
+                    return Task::none();
+                }
+                self.window_dragging = true; window::drag(id)
+            }
             Message::WindowDragEnd => {
                 self.window_dragging = false;
                 // Global mouse-up: settle a dragged popout IMMEDIATELY (dock-back or
@@ -1878,7 +1984,15 @@ impl App {
                     rename_widget_window();
                     set_all_windows_rounded(self.settings.round_corners);
                     self.round_retry_until = Some(Instant::now() + Duration::from_millis(1200));
-                    return self.apply_click_through();
+                    let ct = self.apply_click_through();
+                    let op = self.apply_widget_opacity();
+                    let mut tasks = vec![op, ct];
+                    // "Start minimized": launch quietly to the tray (after the window
+                    // setup above, so the HWND is resolved and styled first).
+                    if self.settings.start_minimized {
+                        tasks.push(window::change_mode(id, window::Mode::Hidden));
+                    }
+                    return Task::batch(tasks);
                 }
                 // A settings/popup opened: blip its title-bar brand, round its OS
                 // corners to match the toggle, then drop the widget below it.
@@ -2280,7 +2394,7 @@ impl App {
                 } else { self.settings.visible_tiles.retain(|t| t != &name); }
                 self.resize_widget()
             }
-            Message::SetOpacity(v) => { self.settings.widget_opacity = v; Task::none() }
+            Message::SetOpacity(v) => { self.settings.widget_opacity = v; self.apply_widget_opacity() }
             Message::SetOrientation(o) => { self.settings.orientation = o; self.resize_widget() }
             Message::SetFahrenheit(f) => { self.settings.temperature_unit = if f { TempUnit::Fahrenheit } else { TempUnit::Celsius }; Task::none() }
             Message::SetSnap(on) => {
@@ -2346,6 +2460,28 @@ impl App {
             Message::SetIndicatorFontOffset(v) => { self.settings.indicator_font_offset = v as i32; Task::none() }
             Message::SetMutedContrast(v) => { self.settings.muted_contrast = v; Task::none() }
             Message::SetInterval(v) => { self.settings.update_interval_ms = v as u64; Task::none() }
+            Message::SetNetworkBits(on) => { self.settings.network_bits = on; Task::none() }
+            Message::SetTileSpacingOffset(v) => { self.settings.tile_spacing_offset = v; self.resize_widget() }
+            Message::SetStartMinimized(on) => { self.settings.start_minimized = on; let _ = self.settings.save(); Task::none() }
+            Message::SetLockPosition(on) => { self.settings.lock_position = on; let _ = self.settings.save(); Task::none() }
+            Message::ResetWidgetPosition => {
+                // Snap the widget back to a guaranteed on-screen spot and make sure
+                // it's shown (rescues a widget that ended up off-screen or hidden).
+                self.settings.window_x = 100.0;
+                self.settings.window_y = 100.0;
+                self.snap_right = false;
+                self.snap_bottom = false;
+                let _ = self.settings.save();
+                if let Some(id) = self.widget_window() {
+                    self.ignore_next_move = true;
+                    Task::batch([
+                        window::change_mode(id, window::Mode::Windowed),
+                        window::move_to(id, Point::new(100.0, 100.0)),
+                    ])
+                } else {
+                    Task::none()
+                }
+            }
             Message::SetCpuName(v) => { self.settings.cpu_custom_name = v; Task::none() }
             Message::SetGpuName(v) => { self.settings.gpu_custom_name = v; Task::none() }
             Message::SetDisk(v) => { self.settings.selected_disk_mount = v; Task::none() }
@@ -2868,7 +3004,7 @@ impl App {
             Message::OpenUpdateInSettings(id) => {
                 // Land on the Tools tab (where the Updates panel lives), then close
                 // the notice. The gear dot stays until the update is actually applied.
-                self.settings_tab = 2;
+                self.settings_tab = settings_panel::TAB_TOOLS;
                 Task::batch([window::close(id), self.open_settings()])
             }
             Message::ExportAppearance => {
@@ -3029,7 +3165,10 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SetGameModeOpacity(v) => { self.settings.game_mode_opacity = v; Task::none() }
+            Message::SetGameModeOpacity(v) => {
+                self.settings.game_mode_opacity = v;
+                if self.game_mode { self.apply_widget_opacity() } else { Task::none() }
+            }
             Message::SetGameModeOrientation(s) => {
                 self.settings.game_mode_orientation = s;
                 if self.game_mode { self.resize_widget() } else { Task::none() }
@@ -3048,12 +3187,10 @@ impl App {
 
     fn view(&self, id: window::Id) -> Element<'_, Message> {
         let kind = self.windows.get(&id).copied().unwrap_or(WindowKind::Widget);
-        let opacity = if kind == WindowKind::Widget {
-            if self.game_mode { self.settings.game_mode_opacity } else { self.settings.widget_opacity }
-        } else {
-            1.0
-        };
-        let p = Palette::from_settings(&self.settings, opacity);
+        // The widget's translucency is applied at the WINDOW level (AMD-safe layered
+        // alpha, see apply_widget_opacity) rather than baked into the colours, so the
+        // palette is always built solid here. Popouts manage their own opacity.
+        let p = Palette::from_settings(&self.settings, 1.0);
         match kind {
             WindowKind::Settings => {
                 let cpu_name = fmt::shorten(&self.snapshot.cpu.name);
@@ -3359,7 +3496,7 @@ impl App {
             let sc = self.settings.ui_scale;
             let tw = self.settings.tile_width * sc;
             let th = self.settings.tile_height * sc;
-            let sp = skin.tile_spacing;
+            let sp = self.effective_tile_spacing();
             let n = tiles.len() as f32;
             let pitch = if vertical { th + sp } else { tw + sp };
             // iced sizes a Stack to its FIRST child, so without a full-size base
@@ -3384,9 +3521,9 @@ impl App {
             }
             iced::widget::Stack::with_children(layers).into()
         } else if vertical {
-            column(tiles.into_iter().map(|(_, el)| el).collect::<Vec<_>>()).spacing(skin.tile_spacing).into()
+            column(tiles.into_iter().map(|(_, el)| el).collect::<Vec<_>>()).spacing(self.effective_tile_spacing()).into()
         } else {
-            row(tiles.into_iter().map(|(_, el)| el).collect::<Vec<_>>()).spacing(skin.tile_spacing).into()
+            row(tiles.into_iter().map(|(_, el)| el).collect::<Vec<_>>()).spacing(self.effective_tile_spacing()).into()
         };
         let icon_btn = |label: &str, sz: u16, msg: Message| {
             // line_height 1.0 keeps the glyph's box ~= its font size so the gear
@@ -3439,6 +3576,38 @@ impl App {
         // Device switcher tabs (this PC + each remote), shown only with remotes.
         let widget_border = skin.border_color(&p);
         let mut shell = column![header];
+        // Game Mode badge: a centered accent pill on its own row with a vector
+        // gamepad icon + the exit hotkey — vital because click-through means the
+        // gear/X can't be clicked, so the hotkey is the only way out. The icon is
+        // canvas art (not the Windows-only 🎮 glyph), so it renders on every OS. Its
+        // own row guarantees room even on a single-tile (narrow) widget.
+        if self.game_mode {
+            let hk = self.settings.game_mode_hotkey.trim();
+            let pill_inside = style::lerp(p.bg, p.accent, 0.16);
+            let icon = style::gamepad_icon(p.accent, pill_inside, 15.0, 11.0);
+            let inner: Element<'_, Message> = if hk.is_empty() {
+                icon
+            } else {
+                row![
+                    icon,
+                    text(hk.to_string()).size(9)
+                        .font(iced::Font { weight: iced::font::Weight::Bold, ..iced::Font::DEFAULT })
+                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                        .wrapping(iced::widget::text::Wrapping::None)
+                        .style(move |_| iced::widget::text::Style { color: Some(p.accent) }),
+                ].spacing(4).align_y(iced::Alignment::Center).into()
+            };
+            let badge = container(inner)
+                .padding(iced::Padding { top: 1.0, bottom: 1.0, left: 6.0, right: 6.0 })
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color { a: 0.16, ..p.accent })),
+                    border: Border { radius: 8.0.into(), width: 1.0, color: Color { a: 0.45, ..p.accent } },
+                    ..Default::default()
+                });
+            shell = shell.push(
+                container(badge).width(Length::Fill).center_x(Length::Fill).padding(iced::Padding { top: 1.0, bottom: 1.0, left: 4.0, right: 4.0 }),
+            );
+        }
         if self.show_device_tabs() {
             shell = shell.push(Space::with_height(2));
             shell = shell.push(self.device_tabs(active_id, p));

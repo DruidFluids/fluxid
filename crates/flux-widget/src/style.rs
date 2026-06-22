@@ -127,6 +127,58 @@ pub fn expand_chevron<'a>(open: bool, color: Color, size: f32) -> Element<'a, Me
         .into()
 }
 
+/// A small game-controller silhouette, drawn as vector canvas art so it renders
+/// identically on every platform — the Game Mode glyph in the Tools card uses the
+/// Segoe UI Symbol font (Windows-only), which would be tofu on macOS/Linux. Used
+/// for the on-widget Game Mode badge. `hole` punches the d-pad + buttons so it
+/// reads as a controller rather than a blob (pass the colour showing behind it).
+struct GamepadIcon {
+    color: Color,
+    hole: Color,
+}
+impl canvas::Program<Message> for GamepadIcon {
+    type State = ();
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: iced::Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let (w, h) = (bounds.width, bounds.height);
+        let p = |x: f32, y: f32| iced::Point::new(x * w, y * h);
+        // Body: a rounded bar connecting two lower grips. The bar + the two grip
+        // circles union into the classic gamepad silhouette.
+        let mut body = path::Builder::new();
+        body.rounded_rectangle(p(0.14, 0.30), iced::Size::new(0.72 * w, 0.30 * h), (0.10 * w).into());
+        body.circle(p(0.28, 0.58), 0.20 * w);
+        body.circle(p(0.72, 0.58), 0.20 * w);
+        frame.fill(&body.build(), self.color);
+        // D-pad (left) + two buttons (right), punched in the "hole" colour so they
+        // read as cut-outs in the silhouette.
+        let mut cut = path::Builder::new();
+        // d-pad cross
+        cut.rectangle(p(0.24, 0.42), iced::Size::new(0.10 * w, 0.04 * h));
+        cut.rectangle(p(0.27, 0.36), iced::Size::new(0.04 * w, 0.16 * h));
+        // two round buttons
+        cut.circle(p(0.69, 0.42), 0.045 * w);
+        cut.circle(p(0.77, 0.50), 0.045 * w);
+        frame.fill(&cut.build(), self.hole);
+        vec![frame.into_geometry()]
+    }
+}
+
+/// The gamepad silhouette as a fixed-size element (wider than tall, like a real
+/// controller). `hole` is the colour showing behind the icon (for the cut-outs).
+pub fn gamepad_icon<'a>(color: Color, hole: Color, width: f32, height: f32) -> Element<'a, Message> {
+    canvas::Canvas::new(GamepadIcon { color, hole })
+        .width(iced::Length::Fixed(width))
+        .height(iced::Length::Fixed(height))
+        .into()
+}
+
 /// The Flux brand mark: an accent "activity pulse" (ECG) matching the heartbeat
 /// on the app icon. Rendered as SVG (resvg) rather than a small canvas stroke,
 /// which the GPU softens — SVG stays crisp at any DPI, like the network arrows.

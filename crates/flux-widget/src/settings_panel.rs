@@ -133,6 +133,14 @@ pub(crate) fn hotkey_field<'a>(combo: &str, capturing: bool, width: f32, arm_msg
 // groups are already bundled (RemoteView, UpdateView) and the rest are distinct
 // scalars that a wrapper struct would only obscure.
 #[allow(clippy::too_many_arguments)]
+// Settings tab order, by name. To reorder the tabs, change these indices AND the
+// `tab_labels` / `tab_panes` order below to match — every call site (here and in
+// main.rs) references the tabs by these names, not bare numbers.
+pub const TAB_APPEARANCE: usize = 0;
+pub const TAB_BEHAVIOR: usize = 1;
+pub const TAB_TILES: usize = 2;
+pub const TAB_TOOLS: usize = 3;
+
 pub fn view<'a>(
     settings: &AppSettings, p: Palette, win_id: iced::window::Id,
     theme_name: String, disks: Vec<String>, adapters: Vec<String>,
@@ -412,8 +420,26 @@ pub fn view<'a>(
         ].spacing(8).into()
     };
 
+    // Opacity is a visual property, so it lives on the Appearance tab; the rest of
+    // these window-behaviour settings live on their own Behavior tab.
+    let opacity_ctrl = pslider("Opacity", format!("{:.0}%", settings.widget_opacity * 100.0), 0.3, 1.0, settings.widget_opacity, 0.9, 0.01, Message::SetOpacity, "How see-through the widget is (lower = more transparent).");
+    let reset_pos_btn = crate::style::with_tip(
+        button(text("Reset widget position").size(11)
+            .style(move |_| iced::widget::text::Style { color: Some(p.text) }))
+            .padding(iced::Padding { top: 5.0, right: 12.0, bottom: 5.0, left: 12.0 })
+            .style(move |_, status: button::Status| button::Style {
+                background: Some(iced::Background::Color(if matches!(status, button::Status::Hovered) { iced::Color { a: 0.7, ..p.tile } } else { iced::Color { a: 0.5, ..p.tile } })),
+                border: Border { radius: 6.0.into(), width: 1.0, color: iced::Color { a: 0.30, ..p.muted } },
+                ..Default::default()
+            })
+            .on_press(Message::ResetWidgetPosition),
+        "Move the widget back to a default on-screen position (rescues it if it's off-screen).", p);
     let behavior = column![
         row![sw_tt("Always on top", settings.always_on_top, Message::SetAlwaysOnTop, always_tip), sw_tt("Run at Windows startup", settings.run_at_startup, Message::SetRunAtStartup, startup_tip)].spacing(8),
+        row![
+            sw_tt("Start minimized to tray", settings.start_minimized, Message::SetStartMinimized, "Launch Flux hidden in the system tray (click the tray icon to show it)."),
+            sw_tt("Lock position", settings.lock_position, Message::SetLockPosition, "Prevent the widget from being dragged, so it can't be knocked out of place."),
+        ].spacing(8),
         snap_block,
         Space::with_height(4),
         fl("Click-through hotkey"),
@@ -425,12 +451,9 @@ pub fn view<'a>(
                 .on_press(Message::ClearHotkey(crate::hotkeys::HotkeyTarget::ClickThrough)), "Clear the hotkey", p),
         ].spacing(6).align_y(iced::Alignment::Center),
         Space::with_height(4),
-        // Paired sliders: Opacity + Update interval
-        row![
-            pslider("Opacity", format!("{:.0}%", settings.widget_opacity * 100.0), 0.3, 1.0, settings.widget_opacity, 0.9, 0.01, Message::SetOpacity, "How see-through the widget is (lower = more transparent)."),
-            Space::with_width(8),
-            pslider("Update interval", format!("{} ms", settings.update_interval_ms), 250.0, 5000.0, settings.update_interval_ms as f32, 1500.0, 250.0, Message::SetInterval, "How often the stats refresh, in milliseconds."),
-        ],
+        pslider("Update interval", format!("{} ms", settings.update_interval_ms), 250.0, 5000.0, settings.update_interval_ms as f32, 1500.0, 250.0, Message::SetInterval, "How often the stats refresh, in milliseconds."),
+        Space::with_height(4),
+        reset_pos_btn,
     ].spacing(4);
 
     // ── Size: sliders that change tile/widget dimensions (live in Appearance) ──
@@ -641,7 +664,7 @@ pub fn view<'a>(
     let drag_name: Option<&str> = drag.as_ref().map(|d| d.0.as_str());
     let drop_target: usize = drag.as_ref().map(|d| d.1).unwrap_or(0);
     // Row header height (pinned so expanding one row doesn't squeeze the others).
-    const FLOAT_H: f32 = 44.0;
+    const FLOAT_H: f32 = 54.0;
     // Reorder the rows into the live preview order while dragging.
     if let Some(name) = drag_name {
         if let Some(cur) = display_order.iter().position(|t| *t == name) {
@@ -729,39 +752,44 @@ pub fn view<'a>(
         }
         if i != last { tcol = tcol.push(row_divider()); }
     }
-    tcol = tcol.push(Space::with_height(14));
-    tcol = tcol.push(sh("Layout", "Stack tiles vertically (tall) or horizontally (wide)."));
-    tcol = tcol.push(layout_pills);
-    tcol = tcol.push(Space::with_height(14));
-    tcol = tcol.push(sh("Behavior", "How the widget behaves on your desktop."));
-    tcol = tcol.push(behavior);
+    // (Layout + Behavior live on their own tabs now — see behavior_tab below.)
     // Understated, centered hint at the very top of the Tiles tab.
     let drag_hint = container(
         text("drag to reorder tiles").size(10)
             .style(move |_| iced::widget::text::Style { color: Some(iced::Color { a: 0.65, ..p.muted }) })
     ).width(Length::Fill).center_x(Length::Fill)
         .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 8.0, left: 0.0 });
-    // Master temperature-unit switch — a full-width bar at the very top of the
-    // Tiles tab. The unit is global (every tile's temperature uses it), so it lives
-    // here as one master control rather than buried in the CPU tile's options.
-    let temp_unit_bar = container(
+    // Display section — global format options (temperature unit, network units) and
+    // tile spacing — sits below the tile list. The temperature unit is global (every
+    // tile uses it), so it lives here as one master control.
+    let tile_gap_base = crate::style::skin_style(&settings.active_skin).tile_spacing;
+    let tile_gap_eff = (tile_gap_base + settings.tile_spacing_offset).max(0.0);
+    let display_section = column![
         row![
-            text("Temperature unit").size(12)
-                .font(iced::Font { weight: iced::font::Weight::Semibold, ..iced::Font::DEFAULT })
-                .style(move |_| iced::widget::text::Style { color: Some(p.text) }),
+            fl("Temperature"),
             Space::with_width(Length::Fill),
             crate::style::with_tip(seg("\u{00B0}C".into(), !fahrenheit, Message::SetFahrenheit(false)), "Show all temperatures in Celsius.", p),
             crate::style::with_tip(seg("\u{00B0}F".into(), fahrenheit, Message::SetFahrenheit(true)), "Show all temperatures in Fahrenheit.", p),
-        ].align_y(iced::Alignment::Center)
-    )
-    .width(Length::Fill)
-    .padding(iced::Padding { top: 8.0, right: 12.0, bottom: 8.0, left: 12.0 })
-    .style(move |_| iced::widget::container::Style {
-        background: Some(iced::Background::Color(iced::Color { a: 0.5, ..p.tile })),
-        border: Border { radius: 8.0.into(), width: 1.0, color: iced::Color { a: 0.25, ..p.muted } },
-        ..Default::default()
-    });
-    let tiles_tab: Element<'a, Message> = column![temp_unit_bar, Space::with_height(10), drag_hint, tcol].into();
+        ].align_y(iced::Alignment::Center),
+        row![
+            fl("Network units"),
+            Space::with_width(Length::Fill),
+            crate::style::with_tip(seg("Bytes".into(), !settings.network_bits, Message::SetNetworkBits(false)), "Network speeds in bytes \u{2014} KB/s, MB/s.", p),
+            crate::style::with_tip(seg("Bits".into(), settings.network_bits, Message::SetNetworkBits(true)), "Network speeds in bits \u{2014} Kbps, Mbps (how ISPs and routers quote them).", p),
+        ].align_y(iced::Alignment::Center),
+        column![
+            row![fl("Tile spacing"), Space::with_width(Length::Fill), vl(format!("{:.0}px", tile_gap_eff))],
+            crate::style::with_tip(marked_slider(-6.0, 20.0, settings.tile_spacing_offset, 1.0, 0.0, p, Message::SetTileSpacingOffset), "Gap between tiles on the widget (added to the skin's own spacing).", p),
+        ].spacing(2),
+    ].spacing(10);
+    let tiles_tab: Element<'a, Message> = column![
+        drag_hint,
+        tcol,
+        Space::with_height(16),
+        sh("Display", "Units and tile spacing."),
+        Space::with_height(4),
+        display_section,
+    ].into();
 
     // ════════════════════════════════════════════════════════════
     //  RIGHT COLUMN  (Appearance / Font / Remote / Updates)
@@ -1281,9 +1309,17 @@ pub fn view<'a>(
     let appearance_tab: Element<'a, Message> = column![
         sh("Appearance", "Customize colors. Click any swatch in the strip to open the color picker."), appearance,
         Space::with_height(6),
-        sh("Size", "Scale the whole widget and set tile width/height."), sizing,
+        sh("Size", "Scale the whole widget, set tile width/height, opacity, and corners."),
+        column![sizing, opacity_ctrl].spacing(4),
         Space::with_height(6),
         sh("Font", "Pick fonts for Primary numbers, Secondary labels, and Indicators (units). Toggle 'Sync' to lock all three together. Sizes nudge the chosen font up or down."), fonts,
+    ].spacing(4).into();
+
+    // ── Behavior tab: how the widget acts on the desktop (layout + window behaviour) ──
+    let behavior_tab: Element<'a, Message> = column![
+        sh("Layout", "Stack tiles vertically (tall) or horizontally (wide)."), layout_pills,
+        Space::with_height(6),
+        sh("Behavior", "Always-on-top, startup, snapping, click-through, and refresh rate."), behavior,
     ].spacing(4).into();
 
     // ── Tools tab: a 2×2 grid of launcher cards (icon-tinted, with live status) ──
@@ -1371,8 +1407,9 @@ pub fn view<'a>(
     //  ASSEMBLY  (tabbed)
     // ════════════════════════════════════════════
 
-    let tab_labels = ["Tiles", "Appearance", "Tools"];
-    let mut tab_panes = vec![tiles_tab, appearance_tab, tools_tab];
+    // Order must match the TAB_* constants: Appearance, Behavior, Tiles, Tools.
+    let tab_labels = ["Appearance", "Behavior", "Tiles", "Tools"];
+    let mut tab_panes = vec![appearance_tab, behavior_tab, tiles_tab, tools_tab];
     let active = tab.min(tab_panes.len() - 1);
 
     // ── Soft Premium chrome colours (derived from the live palette) ──
@@ -1436,7 +1473,7 @@ pub fn view<'a>(
     // Tools (index 2) fills the full height (grid pinned to the top, Updates card
     // stretches to fill the rest); the other tabs keep their content vertically
     // centred in the fixed-height window.
-    let is_tools = active == 2;
+    let is_tools = active == TAB_TOOLS;
     // Non-tools tabs scroll when their content overflows the window — otherwise
     // expanding a tile's options (Tiles tab) pushes everything below it off the
     // bottom with no way to reach it. The drag-reorder collapses all sections

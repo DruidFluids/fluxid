@@ -517,8 +517,8 @@ pub fn network_tile<'a>(net: &NetworkData, s: &AppSettings, p: Palette, w: WarnV
             .unwrap_or((0, 0))
     };
     let label = if sel.is_empty() { "All adapters".to_string() } else { sel.clone() };
-    let (dv, du) = fmt::fmt_net(down as f64);
-    let (uv, uu) = fmt::fmt_net(up as f64);
+    let (dv, du) = fmt::fmt_net(down as f64, s.network_bits);
+    let (uv, uu) = fmt::fmt_net(up as f64, s.network_bits);
 
     // Traffic indicator. Off = static muted arrows. Blink/Fade pulse the accent
     // opacity; Glow is a static brighter (lit) accent — no halo box.

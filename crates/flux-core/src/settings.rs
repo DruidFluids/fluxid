@@ -95,6 +95,8 @@ pub struct AppSettings {
     pub installed_themes: Vec<PresetSlot>,
     pub temperature_unit: TempUnit,
     pub start_minimized: bool,
+    // When true, the widget can't be dragged (prevents knocking it out of place).
+    #[serde(default)] pub lock_position: bool,
     pub first_run_complete: bool,
     /// User dismissed the CPU-tile "turn on temperature" hint (the in-tile
     /// nudge to install the optional sensor driver). Resets if they later open
@@ -121,6 +123,10 @@ pub struct AppSettings {
     #[serde(default = "def_true")] pub disk_show_read: bool,
     #[serde(default = "def_true")] pub disk_show_write: bool,
     #[serde(default = "def_true")] pub clock_show_date: bool,
+    // Network tile: show rates in bits (Kbps/Mbps/Gbps) instead of bytes (KB/s…).
+    #[serde(default)] pub network_bits: bool,
+    // User nudge added to the active skin's tile gap (px); 0 = the skin's own spacing.
+    #[serde(default)] pub tile_spacing_offset: f32,
 }
 
 fn def_true() -> bool { true }
@@ -199,6 +205,7 @@ impl Default for AppSettings {
             installed_themes: Vec::new(),
             temperature_unit: TempUnit::Celsius,
             start_minimized: false,
+            lock_position: false,
             first_run_complete: false,
             cpu_temp_hint_dismissed: false,
             show_remote_status_dot: true,
@@ -208,6 +215,8 @@ impl Default for AppSettings {
             net_show_down: true, net_show_up: true, net_upload_first: false,
             disk_show_read: true, disk_show_write: true,
             clock_show_date: true,
+            network_bits: false,
+            tile_spacing_offset: 0.0,
         }
     }
 }
