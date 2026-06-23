@@ -1386,6 +1386,10 @@ impl App {
                         _ => (TAB_APPEARANCE, None),
                     };
                     app.settings_tab = tab;
+                    // For the Tiles README shot, pre-open a tile so the master-detail
+                    // panel below the list is shown populated (not the empty
+                    // "select a tile" placeholder).
+                    if other == "tiles" { app.tiles_section = Some("CPU".to_string()); }
                     if let Some(m) = msg { batch.push(Task::done(m)); }
                 }
             }
