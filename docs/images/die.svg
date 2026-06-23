@@ -4,11 +4,14 @@
     <path d="M18,17 L18,33 M18,17 L32,11 M18,17 L4,11"/>
   </g>
   <g fill="#2EA8E6" stroke="none">
-    <circle cx="18" cy="10" r="1.5"/>
-    <circle cx="8" cy="18" r="1.5"/>
-    <circle cx="14" cy="26" r="1.5"/>
-    <circle cx="28" cy="15" r="1.5"/>
-    <circle cx="25" cy="21" r="1.5"/>
-    <circle cx="22" cy="27" r="1.5"/>
+    <!-- top face: 1 -->
+    <circle cx="18" cy="10.5" r="1.8"/>
+    <!-- left face: 2 (UL→B diagonal) -->
+    <circle cx="7.85" cy="16.55" r="1.8"/>
+    <circle cx="14.15" cy="26.45" r="1.8"/>
+    <!-- right face: 3 (UR→B diagonal, mirrored) -->
+    <circle cx="28.5" cy="16.5" r="1.8"/>
+    <circle cx="25" cy="22" r="1.8"/>
+    <circle cx="21.5" cy="27.5" r="1.8"/>
   </g>
 </svg>
