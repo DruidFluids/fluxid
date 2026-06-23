@@ -815,7 +815,9 @@ pub fn view<'a>(
         ..Default::default()
     };
     // Detail panel: the selected tile's options, filling the space the inline
-    // accordion used to push around. Empty (with a prompt) until a tile is picked.
+    // accordion used to push around. Shown ONLY once a tile is expanded — when
+    // nothing is picked it collapses to invisible flex space (no empty box), so
+    // the list and Display sit cleanly with the gap absorbed between them.
     let detail_panel: Element<'a, Message> = if let Some(body) = selected_body {
         let title = selected_name.unwrap_or("Tile").to_string();
         container(
@@ -829,12 +831,7 @@ pub fn view<'a>(
         ).padding(iced::Padding { top: 10.0, right: 12.0, bottom: 10.0, left: 12.0 })
             .width(Length::Fill).height(Length::Fill).style(panel_style).into()
     } else {
-        container(
-            text("Select a tile above to edit its options").size(11)
-                .style(move |_| iced::widget::text::Style { color: Some(p.muted) })
-        ).padding(iced::Padding { top: 10.0, right: 12.0, bottom: 10.0, left: 12.0 })
-            .width(Length::Fill).height(Length::Fill)
-            .center_x(Length::Fill).center_y(Length::Fill).style(panel_style).into()
+        Space::with_height(Length::Fill).into()
     };
     let tiles_tab: Element<'a, Message> = column![
         container(column![drag_hint, tcol])
